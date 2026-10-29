@@ -1,12 +1,12 @@
 import Foundation
 
-public struct InfoSnapshot {
+public struct InfoSnapshot: Decodable {
     public struct InstalledRecord: Codable {
         public let version: String
         public let time: Date? // JSON time = epoch seconds
     }
 
-    public struct FormulaInfo: Codable {
+    public struct FormulaInfo: Decodable {
         public let name: String
         public let fullName: String
         public let tap: String
@@ -68,7 +68,7 @@ public struct InfoSnapshot {
         }
     }
 
-    public struct CaskInfo: Codable {
+    public struct CaskInfo: Decodable {
         public let token: String
         public let installedVersion: String? // cask `installed` is a STRING, not array — §45
         public let installedTime: Date?
