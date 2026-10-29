@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Local Claude config/skills
+.claude/
+*.local.*
+
 # Swift Package Manager
 .build/
 .swiftpm/
