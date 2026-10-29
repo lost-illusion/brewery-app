@@ -1,0 +1,50 @@
+{
+  "formulae": [
+    {
+      "name": "ace",
+      "versions": [
+        "8.0.8"
+      ],
+      "linked_version": null,
+      "optlinked_version": "8.0.8",
+      "pinned_version": null,
+      "brand_new_field": 1
+    },
+    {
+      "name": "ralphex",
+      "versions": [
+        "1.0.1"
+      ],
+      "linked_version": null,
+      "optlinked_version": "1.0.1",
+      "pinned_version": null,
+      "brand_new_field": 1
+    }
+  ],
+  "casks": [
+    {
+      "token": "agterm",
+      "versions": [
+        "0.38.1"
+      ],
+      "pinned_version": null,
+      "brand_new_field": 1
+    },
+    {
+      "token": "revmux",
+      "versions": [
+        "0.2.7"
+      ],
+      "pinned_version": null,
+      "brand_new_field": 1
+    },
+    {
+      "token": "wireshark-app",
+      "versions": [
+        "4.6.9"
+      ],
+      "pinned_version": null,
+      "brand_new_field": 1
+    }
+  ]
+}

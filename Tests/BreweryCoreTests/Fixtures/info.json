@@ -1,0 +1,656 @@
+{
+  "formulae": [
+    {
+      "name": "ace",
+      "full_name": "ace",
+      "tap": "homebrew/core",
+      "oldnames": [],
+      "aliases": [],
+      "versioned_formulae": [],
+      "desc": "ADAPTIVE Communication Environment: OO network programming in C++",
+      "license": "DOC",
+      "homepage": "https://www.dre.vanderbilt.edu/~schmidt/ACE.html",
+      "versions": {
+        "stable": "8.0.8",
+        "head": null,
+        "bottle": true
+      },
+      "urls": {
+        "stable": {
+          "url": "https://github.com/DOCGroup/ACE_TAO/releases/download/ACE%2BTAO-8_0_8/ACE+TAO-8.0.8.tar.bz2",
+          "tag": null,
+          "revision": null,
+          "using": null,
+          "checksum": "d7b1d3e1534095b0a627817f4472eed1cc27ccf83fd011557031cf073fc7222a"
+        }
+      },
+      "patches": [],
+      "local_patch_checksums": {},
+      "revision": 0,
+      "version_scheme": 0,
+      "compatibility_version": 3,
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": false,
+      "bottle": {
+        "stable": {
+          "rebuild": 0,
+          "root_url": "https://ghcr.io/v2/homebrew/core",
+          "files": {
+            "arm64_golden_gate": {
+              "cellar": ":any",
+              "url": "https://ghcr.io/v2/homebrew/core/ace/blobs/sha256:285859dbe41ddeef30775f0439be848fa4e2d48679656be0251552bf7de44b08",
+              "sha256": "285859dbe41ddeef30775f0439be848fa4e2d48679656be0251552bf7de44b08"
+            }
+          }
+        }
+      },
+      "pour_bottle_only_if": null,
+      "keg_only": false,
+      "keg_only_reason": null,
+      "options": [],
+      "build_dependencies": [],
+      "dependencies": [],
+      "test_dependencies": [],
+      "recommended_dependencies": [],
+      "optional_dependencies": [],
+      "no_linkage_dependencies": [],
+      "uses_from_macos": [],
+      "uses_from_macos_bounds": [],
+      "requirements": [],
+      "conflicts_with": [],
+      "conflicts_with_reasons": [],
+      "link_overwrite": [],
+      "caveats": null,
+      "installed": [
+        {
+          "sbom": "/opt/homebrew/Cellar/ace/8.0.8/sbom.spdx.json",
+          "version": "8.0.8",
+          "used_options": [],
+          "built_as_bottle": true,
+          "poured_from_bottle": true,
+          "time": 1792518528,
+          "runtime_dependencies": [],
+          "installed_on_request": true
+        }
+      ],
+      "linked_keg": "8.0.8",
+      "pinned": false,
+      "outdated": false,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "post_install_steps": [],
+      "post_install_defined": false,
+      "service": null,
+      "tap_git_head": "5251e778a43128b71a6223d3d8c39e1ff3d37b04",
+      "ruby_source_path": "Formula/a/ace.rb",
+      "ruby_source_checksum": {
+        "sha256": "897316f70aaf712c28fc83481e89f35770a2ac5f0d42df27eac6bf5f52ccd614"
+      }
+    }
+  ],
+  "casks": [
+    {
+      "token": "agterm",
+      "full_token": "umputun/apps/agterm",
+      "old_tokens": [],
+      "tap": "umputun/apps",
+      "name": [
+        "agterm"
+      ],
+      "desc": "Terminal on libghostty with a workspace/session sidebar",
+      "homepage": "https://github.com/umputun/agterm",
+      "url": "https://github.com/umputun/agterm/releases/download/v0.38.1/agterm-0.38.1.dmg",
+      "url_specs": {},
+      "version": "0.38.1",
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": false,
+      "installed": "0.38.1",
+      "installed_time": 1793277854,
+      "bundle_version": "0.38.1",
+      "bundle_short_version": "0.38.1",
+      "pinned": false,
+      "pinned_version": null,
+      "outdated": false,
+      "sha256": "96da24beb0561d43d0eb0411408549cbb44af9d291fe3b0b7f69a8f9415df81d",
+      "artifacts": [
+        {
+          "preflight_steps": [
+            {
+              "steps": [
+                {
+                  "command": {
+                    "path": "/bin/sh"
+                  },
+                  "type": "run",
+                  "args": [
+                    "-c",
+                    "err=$(/usr/bin/xattr -dr com.apple.quarantine \"$1\" 2>&1 >/dev/null) || echo \"Warning: could not remove quarantine from $1 ($(printf \"%s\\n\" \"$err\" | head -n 1)); macOS may ask to confirm the first launch\" >&2",
+                    "sh",
+                    "{{staged_path}}/agterm.app"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "app": [
+            "agterm.app"
+          ],
+          "target": "/Applications/agterm.app"
+        },
+        {
+          "binary": [
+            "/Applications/agterm.app/Contents/MacOS/agtermctl",
+            {
+              "target": "agtermctl"
+            }
+          ],
+          "target": "/opt/homebrew/bin/agtermctl"
+        },
+        {
+          "zap": [
+            {
+              "trash": [
+                "~/Library/Application Support/agterm",
+                "~/Library/Preferences/com.umputun.agterm.plist",
+                "~/Library/Saved Application State/com.umputun.agterm.savedState"
+              ]
+            }
+          ]
+        }
+      ],
+      "caveats": null,
+      "caveats_rosetta": null,
+      "depends_on": {
+        "arch": [
+          {
+            "type": "arm",
+            "bits": 64
+          }
+        ],
+        "macos": {
+          ">=": [
+            "14"
+          ]
+        }
+      },
+      "conflicts_with": null,
+      "container": null,
+      "rename": [],
+      "auto_updates": null,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "tap_git_head": "1391b964968f7bea4711911f4500de2aadd88a85",
+      "languages": [],
+      "ruby_source_path": "Casks/agterm.rb",
+      "ruby_source_checksum": {
+        "sha256": "b1fc1e3587c681177f523f235d5d036fbdbaa3c8f897485f968c947108e51afa"
+      }
+    },
+    {
+      "token": "revmux",
+      "full_token": "umputun/apps/revmux",
+      "old_tokens": [],
+      "tap": "umputun/apps",
+      "name": [
+        "revmux"
+      ],
+      "desc": "Supervised multi-agent code review with parallel claude and codex subprocesses",
+      "homepage": "https://github.com/umputun/revmux",
+      "url": "https://github.com/umputun/revmux/releases/download/v0.2.7/revmux_0.2.7_darwin_arm64.tar.gz",
+      "url_specs": {},
+      "version": "0.2.7",
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": true,
+      "installed": "0.2.7",
+      "installed_time": 1792507731,
+      "bundle_version": null,
+      "bundle_short_version": null,
+      "pinned": false,
+      "pinned_version": null,
+      "outdated": false,
+      "sha256": "2d732157d4bdc7692e4468a76fc6ed00abc558e6212e0b1b6c06cd2937722faf",
+      "artifacts": [
+        {
+          "binary": [
+            "revmux"
+          ],
+          "target": "/opt/homebrew/bin/revmux"
+        },
+        {
+          "postflight_steps": [
+            {
+              "steps": [
+                {
+                  "command": {
+                    "path": "/usr/bin/xattr"
+                  },
+                  "guards": [
+                    {
+                      "condition": "on",
+                      "value": "macos",
+                      "id": "1"
+                    }
+                  ],
+                  "type": "run",
+                  "args": [
+                    "-dr",
+                    "com.apple.quarantine",
+                    "{{staged_path}}/revmux"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "caveats": null,
+      "caveats_rosetta": null,
+      "depends_on": {},
+      "conflicts_with": null,
+      "container": null,
+      "rename": [],
+      "auto_updates": null,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "tap_git_head": "1391b964968f7bea4711911f4500de2aadd88a85",
+      "languages": [],
+      "ruby_source_path": "Casks/revmux.rb",
+      "ruby_source_checksum": {
+        "sha256": "df947daecbcbef262bea8efa9263170d8ead39795c999096caf9098338b09ca8"
+      }
+    },
+    {
+      "token": "wireshark-app",
+      "full_token": "wireshark-app",
+      "old_tokens": [
+        "wireshark"
+      ],
+      "tap": "homebrew/cask",
+      "name": [
+        "Wireshark"
+      ],
+      "desc": "Network protocol analyzer",
+      "homepage": "https://www.wireshark.org/",
+      "url": "https://www.wireshark.org/download/osx/all-versions/Wireshark%204.6.9.dmg",
+      "url_specs": {},
+      "version": "4.6.9",
+      "autobump": true,
+      "no_autobump_message": null,
+      "skip_livecheck": false,
+      "installed": "4.6.9",
+      "installed_time": 1792507743,
+      "bundle_version": "4.6.9",
+      "bundle_short_version": "4.6.9",
+      "pinned": false,
+      "pinned_version": null,
+      "outdated": false,
+      "sha256": "10bd54ccdc3f40457f6a1f0c517bc93703fcb327c4cd4b93002e7a623dacbf38",
+      "artifacts": [
+        {
+          "uninstall": [
+            {
+              "early_script": {
+                "executable": "/usr/sbin/installer",
+                "args": [
+                  "-pkg",
+                  "/opt/homebrew/Caskroom/wireshark-app/4.6.9/Remove Wireshark from the system path.pkg",
+                  "-target",
+                  "/"
+                ],
+                "sudo": true,
+                "must_succeed": false
+              },
+              "launchctl": "org.wireshark.ChmodBPF",
+              "pkgutil": "org.wireshark.*"
+            }
+          ]
+        },
+        {
+          "pkg": [
+            "Add Wireshark to the system path.pkg"
+          ]
+        },
+        {
+          "pkg": [
+            "Install ChmodBPF.pkg"
+          ]
+        },
+        {
+          "app": [
+            "Wireshark.app"
+          ],
+          "target": "/Applications/Wireshark.app"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/ciscodump"
+          ],
+          "target": "/opt/homebrew/bin/ciscodump"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/randpktdump"
+          ],
+          "target": "/opt/homebrew/bin/randpktdump"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/sshdump"
+          ],
+          "target": "/opt/homebrew/bin/sshdump"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/wifidump"
+          ],
+          "target": "/opt/homebrew/bin/wifidump"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/idl2wrs"
+          ],
+          "target": "/opt/homebrew/bin/idl2wrs"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/mergecap"
+          ],
+          "target": "/opt/homebrew/bin/mergecap"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/mmdbresolve"
+          ],
+          "target": "/opt/homebrew/bin/mmdbresolve"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/randpkt"
+          ],
+          "target": "/opt/homebrew/bin/randpkt"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/rawshark"
+          ],
+          "target": "/opt/homebrew/bin/rawshark"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/reordercap"
+          ],
+          "target": "/opt/homebrew/bin/reordercap"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/sharkd"
+          ],
+          "target": "/opt/homebrew/bin/sharkd"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/capinfos"
+          ],
+          "target": "/opt/homebrew/bin/capinfos"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/text2pcap"
+          ],
+          "target": "/opt/homebrew/bin/text2pcap"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/tshark"
+          ],
+          "target": "/opt/homebrew/bin/tshark"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/dftest"
+          ],
+          "target": "/opt/homebrew/bin/dftest"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/captype"
+          ],
+          "target": "/opt/homebrew/bin/captype"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/udpdump"
+          ],
+          "target": "/opt/homebrew/bin/udpdump"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/dumpcap"
+          ],
+          "target": "/opt/homebrew/bin/dumpcap"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/editcap"
+          ],
+          "target": "/opt/homebrew/bin/editcap"
+        },
+        {
+          "binary": [
+            "/Applications/Wireshark.app/Contents/MacOS/extcap/androiddump"
+          ],
+          "target": "/opt/homebrew/bin/androiddump"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/reordercap.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/reordercap.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/androiddump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/androiddump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/capinfos.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/capinfos.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/captype.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/captype.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/ciscodump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/ciscodump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/dumpcap.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/dumpcap.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/editcap.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/editcap.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/etwdump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/etwdump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/mergecap.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/mergecap.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/mmdbresolve.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/mmdbresolve.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/randpkt.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/randpkt.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/randpktdump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/randpktdump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/rawshark.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/rawshark.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/sshdump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/sshdump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/text2pcap.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/text2pcap.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/tshark.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/tshark.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/udpdump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/udpdump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/wifidump.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/wifidump.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man1/wireshark.1"
+          ],
+          "target": "/opt/homebrew/share/man/man1/wireshark.1"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man4/extcap.4"
+          ],
+          "target": "/opt/homebrew/share/man/man4/extcap.4"
+        },
+        {
+          "manpage": [
+            "/Applications/Wireshark.app/Contents/Resources/share/man/man4/wireshark-filter.4"
+          ],
+          "target": "/opt/homebrew/share/man/man4/wireshark-filter.4"
+        },
+        {
+          "zap": [
+            {
+              "trash": [
+                "/Library/Application Support/Wireshark",
+                "~/.config/wireshark",
+                "~/Library/Caches/org.wireshark.Wireshark",
+                "~/Library/Cookies/org.wireshark.Wireshark.binarycookies",
+                "~/Library/HTTPStorages/org.wireshark.Wireshark",
+                "~/Library/HTTPStorages/org.wireshark.Wireshark.binarycookies",
+                "~/Library/Preferences/org.wireshark.Wireshark.plist",
+                "~/Library/Saved Application State/org.wireshark.Wireshark.savedState",
+                "~/Library/WebKit/org.wireshark.Wireshark"
+              ]
+            }
+          ]
+        }
+      ],
+      "caveats": null,
+      "caveats_rosetta": null,
+      "depends_on": {
+        "macos": {}
+      },
+      "conflicts_with": {
+        "cask": [
+          "wireshark-chmodbpf"
+        ]
+      },
+      "container": null,
+      "rename": [],
+      "auto_updates": true,
+      "deprecated": false,
+      "deprecation_date": null,
+      "deprecation_reason": null,
+      "deprecation_replacement_formula": null,
+      "deprecation_replacement_cask": null,
+      "deprecate_args": null,
+      "disabled": false,
+      "disable_date": null,
+      "disable_reason": null,
+      "disable_replacement_formula": null,
+      "disable_replacement_cask": null,
+      "disable_args": null,
+      "tap_git_head": "8fec6978fe9e25bf05f4a01d0960e48880ab6f35",
+      "languages": [],
+      "ruby_source_path": "Casks/w/wireshark-app.rb",
+      "ruby_source_checksum": {
+        "sha256": "b61eec4ee3d7e1aad794a1dca765a8225773e9c7872aaa36eb89442f4c957843"
+      }
+    }
+  ]
+}
