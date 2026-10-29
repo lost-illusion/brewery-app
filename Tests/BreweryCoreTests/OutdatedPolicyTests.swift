@@ -1,0 +1,70 @@
+import Foundation
+import Testing
+@testable import BreweryCore
+
+private func makeItem(_ kind: BrewItem.Kind, name: String, installed: [String],
+                      autoUpdates: Bool = false, linked: String? = nil) -> BrewItem {
+    BrewItem(id: name, kind: kind, name: name, fullName: name, tap: "homebrew/core",
+             installedVersions: installed, linkedVersion: linked, optlinkedVersion: nil,
+             pinnedVersion: nil, latestVersion: nil, outdated: nil, isPinned: false,
+             isDeprecated: false, deprecationReason: nil, isDisabled: false, disabledReason: nil,
+             desc: nil, homepage: nil, installedAt: nil, kegOnly: false,
+             autoUpdates: autoUpdates, dependencies: [], sourceState: .complete)
+}
+
+private func manifest(_ json: String) throws -> PackageManifest {
+    try PackageManifest.decode(jwsData: Data(json.utf8)) // decode accepts plain payload JSON
+}
+
+@Test func outdated_formulaUpdateAvailable() throws {
+    let item = makeItem(.formula, name: "ace", installed: ["8.0.8"])
+    let m = try manifest(#"{"formulae":{"ace":{"stable_version":"8.1.0"}},"casks":{}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .updateAvailable(latest: "8.1.0"))
+}
+
+@Test func outdated_formulaUpToDate() throws {
+    let item = makeItem(.formula, name: "ace", installed: ["8.0.8"])
+    let m = try manifest(#"{"formulae":{"ace":{"stable_version":"8.0.8"}},"casks":{}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate)
+}
+
+@Test func outdated_tapPackageUnknownNotUpToDate() throws {
+    let item = makeItem(.formula, name: "ralphex", installed: ["1.0.1"]) // tap pkg: absent from core manifest
+    let m = try manifest(#"{"formulae":{},"casks":{}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .unknown)
+    #expect(latestVersion(for: item, manifest: m) == nil)
+    #expect(outdatedState(item: item, manifest: nil, greedy: false) == .unknown) // no manifest fetched yet
+}
+
+@Test func outdated_autoUpdatesCaskNotCountedByDefault() throws {
+    let item = makeItem(.cask, name: "wireshark-app", installed: ["4.6.9"], autoUpdates: true)
+    let m = try manifest(#"{"formulae":{},"casks":{"wireshark-app":{"version":"4.7.0"}}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate) // brew-default
+}
+
+@Test func outdated_autoUpdatesCaskGreedyFlagsSelfUpdating() throws {
+    let item = makeItem(.cask, name: "wireshark-app", installed: ["4.6.9"], autoUpdates: true)
+    let m = try manifest(#"{"formulae":{},"casks":{"wireshark-app":{"version":"4.7.0"}}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: true) == .selfUpdating(latestKnown: "4.7.0"))
+}
+
+@Test func outdated_plainCaskUpdateAvailable() throws {
+    let item = makeItem(.cask, name: "agterm", installed: ["0.38.1"])
+    let m = try manifest(#"{"formulae":{},"casks":{"agterm":{"version":"0.39.0"}}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .updateAvailable(latest: "0.39.0"))
+}
+
+@Test func outdated_installedLatestMarker() throws {
+    let item = makeItem(.cask, name: "librewolf", installed: [":latest"])
+    let m = try manifest(#"{"formulae":{},"casks":{"librewolf":{"version":"1.2"}}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate)
+    #expect(outdatedState(item: item, manifest: m, greedy: true) == .selfUpdating(latestKnown: "1.2"))
+}
+
+@Test func outdated_manifestLatestMarker() throws {
+    let item = makeItem(.cask, name: "docker", installed: ["4.6.9"])
+    let m = try manifest(#"{"formulae":{},"casks":{"docker":{"version":":latest"}}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate)
+    // ":latest" upstream: newest known is what the user already has
+    #expect(outdatedState(item: item, manifest: m, greedy: true) == .selfUpdating(latestKnown: "4.6.9"))
+}
