@@ -51,7 +51,7 @@ import Testing
     #expect(http.calls.count == 2)
 }
 
-private final class FakeHTTP: HTTPFetching {
+private final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     var calls: [URL] = []
     let response: Data
     init(response: Data) { self.response = response }

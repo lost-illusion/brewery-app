@@ -1,0 +1,177 @@
+import Foundation
+import Testing
+@testable import BreweryCore
+
+// MARK: - Fakes
+
+private final class FakeRunner: CommandRunning, @unchecked Sendable {
+    private let results: [String: BrewResult]
+    private(set) var calls: [[String]] = []
+    private var gate: CheckedContinuation<Void, Never>?
+    private var entryWaiter: CheckedContinuation<Void, Never>?
+    private var infoEntered = false
+
+    private let gateInfo: Bool
+    init(results: [String: BrewResult], gateInfo: Bool = false) {
+        self.results = results
+        self.gateInfo = gateInfo
+    }
+
+    func run(_ args: [String]) async throws -> BrewResult {
+        calls.append(args)
+        await Task.yield()
+        if args.first == "info", gateInfo { // gate only when armed, so other tests' info calls return
+            infoEntered = true
+            entryWaiter?.resume(); entryWaiter = nil
+            await withCheckedContinuation { cont in gate = cont }
+        }
+        guard let r = results[args.joined(separator: " ")] else {
+            return BrewResult(exitCode: 1, stdout: Data(), stderr: Data("unscripted args: \(args)".utf8))
+        }
+        return r
+    }
+
+    func waitForInfoEntry() async {
+        if infoEntered { return }
+        await withCheckedContinuation { cont in entryWaiter = cont }
+    }
+
+    func resumeInfoGate() { gate?.resume(); gate = nil }
+}
+
+private struct FakeProbe: ExternalBrewProbing {
+    let running: Bool
+    func isBrewRunningExternally() -> Bool { running }
+}
+
+private final class FakeHTTP: HTTPFetching, @unchecked Sendable {
+    let response: Data
+    var calls: [URL] = []
+    init(response: Data) { self.response = response }
+    func data(from url: URL) async throws -> Data { calls.append(url); return response }
+}
+
+// MARK: - Harness
+
+private func ok(_ data: Data) -> BrewResult { BrewResult(exitCode: 0, stdout: data, stderr: Data()) }
+
+private struct Harness {
+    let model: InventoryModel
+    let runner: FakeRunner
+    let store: SnapshotStore
+}
+
+@MainActor
+private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
+                         listResult: BrewResult? = nil, gateInfo: Bool = false) throws -> Harness {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let runner = FakeRunner(results: [
+        "list --json --versions": listResult ?? ok(fixtureData("list.json")),
+        "info --json=v2 --installed": ok(fixtureData("info.json")),
+        "list --versions": ok(fixtureData("text-list-real.txt")),
+    ], gateInfo: gateInfo)
+    let http = FakeHTTP(response: fixtureData("manifest-mini.json"))
+    let model = InventoryModel(runner: runner,
+                               manifestFetcher: ManifestFetcher(http: http,
+                                   cacheURL: dir.appendingPathComponent("manifest-cache.json")),
+                               store: SnapshotStore(directory: dir),
+                               brewProbe: FakeProbe(running: probeRunning),
+                               jqAvailable: jqAvailable,
+                               settings: InventorySettings())
+    return Harness(model: model, runner: runner, store: SnapshotStore(directory: dir))
+}
+
+// MARK: - Tests
+
+@Test @MainActor func model_manual_refresh_mergesAndAppliesPolicy() async throws {
+    let h = try makeHarness()
+    await h.model.refresh(reason: .manual)
+    #expect(h.model.state == .ready)
+    let ralphex = try #require(h.model.items.first { $0.name == "ralphex" })
+    #expect(ralphex.sourceState == .listOnly(reason: InventoryMerger.listOnlyReason))
+    let ace = try #require(h.model.items.first { $0.name == "ace" })
+    #expect(ace.outdated == .upToDate) // manifest-mini has ace 8.0.8 == installed
+    #expect(ace.latestVersion == "8.0.8")
+    #expect(h.model.versionDataAsOf != nil)
+    #expect(h.model.inventoryUpdated != nil)
+    #expect(h.store.loadLatest(.listJSON)?.data == fixtureData("list.json"))
+    #expect(h.store.loadLatest(.infoJSON)?.data == fixtureData("info.json"))
+}
+
+@Test @MainActor func model_focusRefreshDeferredWhileExternalBrewRunning() async throws {
+    let h = try makeHarness(probeRunning: true)
+    await h.model.refresh(reason: .focus)
+    #expect(h.runner.calls.isEmpty) // Review Focus 4: never touch a busy brew on focus
+    #expect(h.model.items.isEmpty)
+    #expect(h.model.state == .idle)
+}
+
+@Test @MainActor func model_manualRefreshDuringExternalBrewSurfacesBrewError() async throws {
+    let busy = BrewResult(exitCode: 1, stdout: Data(),
+                          stderr: Data("Error: Cannot lock /opt/homebrew/var/homebrew/lock".utf8))
+    let h = try makeHarness(probeRunning: true, listResult: busy)
+    await h.model.refresh(reason: .manual)
+    switch h.model.state {
+    case .failed(let message):
+        #expect(message.contains("Cannot lock"))
+        #expect(message.contains("brew is busy"))
+    default:
+        Issue.record("expected .failed, got \(h.model.state)")
+    }
+}
+
+@Test @MainActor func model_focusRefreshBacksOff60sAfterFailure() async throws {
+    let broken = BrewResult(exitCode: 1, stdout: Data(), stderr: Data("Error: boom".utf8))
+    let h = try makeHarness(listResult: broken)
+    await h.model.refresh(reason: .manual)
+    if case .failed = h.model.state { } else { Issue.record("expected .failed, got \(h.model.state)") }
+    let callsAfterFailure = h.runner.calls.count
+    await h.model.refresh(reason: .focus) // probe is false; the 60 s failure backoff must block it
+    #expect(h.runner.calls.count == callsAfterFailure)
+}
+
+@Test @MainActor func model_singleFlight() async throws {
+    let h = try makeHarness()
+    let model = h.model // capture only the Sendable model in the child tasks
+    async let a: Void = model.refresh(reason: .manual)
+    async let b: Void = model.refresh(reason: .manual)
+    await (a, b)
+    let listCalls = h.runner.calls.filter { $0.first == "list" }
+    #expect(listCalls.count == 1)
+    #expect(h.model.state == .ready)
+}
+
+@Test @MainActor func model_degradedTextFallbackWhenJqMissing() async throws {
+    let h = try makeHarness(jqAvailable: false)
+    await h.model.refresh(reason: .manual)
+    #expect(h.runner.calls == [["list", "--versions"]]) // no --json asked of brew when jq is missing
+    let ralphex = try #require(h.model.items.first { $0.name == "ralphex" })
+    #expect(ralphex.sourceState == .listOnly(reason: InventoryMerger.listOnlyReason))
+    #expect(h.model.state == .ready)
+    #expect(h.model.versionDataAsOf == nil) // no info → no bottleTag → manifest step skipped
+    #expect(h.store.loadLatest(.textList)?.data == fixtureData("text-list-real.txt"))
+}
+
+@Test @MainActor func model_listRowsPublishBeforeInfo() async throws {
+    let h = try makeHarness(gateInfo: true)
+    let task = Task { await h.model.refresh(reason: .manual) }
+    await h.runner.waitForInfoEntry()
+    for _ in 0..<100 where h.model.items.count < 5 { await Task.yield() }
+    #expect(h.model.items.count == 5) // list.json rows: 2 formulae + 3 casks, published early
+    #expect(h.model.items.allSatisfy { if case .listOnly = $0.sourceState { true } else { false } })
+    h.runner.resumeInfoGate()
+    await task.value
+    let ace = try #require(h.model.items.first { $0.name == "ace" })
+    #expect(ace.sourceState == .complete) // info merged in after the gate
+}
+
+@Test func store_roundTripSaveLoad() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let store = SnapshotStore(directory: dir)
+    #expect(store.loadLatest(.listJSON) == nil)
+    let payload = Data(#"{"formulae":[],"casks":[]}"#.utf8)
+    try store.save(payload, kind: .listJSON)
+    let loaded = try #require(store.loadLatest(.listJSON))
+    #expect(loaded.data == payload)
+    #expect(abs(loaded.savedAt.timeIntervalSinceNow) < 60)
+}

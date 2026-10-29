@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol HTTPFetching {
+public protocol HTTPFetching: Sendable {
     func data(from url: URL) async throws -> Data
 }
 
@@ -19,7 +19,7 @@ public struct ManifestFetchResult {
 
 /// Read-only fetch of the formulae.brew.sh package manifest, with a local
 /// cache so the app never needs `brew update` (design doc §Freshness).
-public struct ManifestFetcher {
+public struct ManifestFetcher: Sendable {
     public let http: HTTPFetching
     public let cacheURL: URL
 
