@@ -18,7 +18,15 @@ public final class VersionHistoryModel {
     /// package keeps reselects free without serving week-old timelines forever.
     public static let cacheTTL: TimeInterval = 1800
 
+    public enum ReleaseStatus: Equatable {
+        case idle
+        case loading
+        case loaded([UpstreamRelease])
+        case failed(message: String)
+    }
+
     public private(set) var statuses: [String: Status] = [:]
+    public private(set) var releaseStatuses: [String: ReleaseStatus] = [:]
 
     private struct Cache {
         let entries: [VersionHistoryEntry]
@@ -28,6 +36,8 @@ public final class VersionHistoryModel {
 
     private var caches: [String: Cache] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
+    private var releaseCaches: [String: (releases: [UpstreamRelease], fetchedAt: Date)] = [:]
+    private var releaseTasks: [String: Task<Void, Never>] = [:]
     private var fetcher: VersionHistoryFetcher
 
     public init(fetcher: VersionHistoryFetcher) {
@@ -45,6 +55,8 @@ public final class VersionHistoryModel {
         fetcher.access = access
         caches = [:]
         statuses = [:]
+        releaseCaches = [:]
+        releaseStatuses = [:]
     }
 
     public func status(for item: BrewItem) -> Status { statuses[item.id] ?? .idle }
@@ -77,6 +89,36 @@ public final class VersionHistoryModel {
         await task.value
         tasks[item.id] = nil
     }
+
+    /// Upstream releases for a GitHub-homepage package (§21). No-op when the
+    /// homepage is not a GitHub repo — the view only asks when derivable, and
+    /// an undecidable homepage has no release source at all.
+    public func loadReleases(for item: BrewItem, force: Bool = false) async {
+        guard let repo = upstreamGitHubRepo(homepage: item.homepage) else { return }
+        if let existing = releaseTasks[item.id] { await existing.value; return } // single flight
+        if !force, let cache = releaseCaches[item.id],
+           Date().timeIntervalSince(cache.fetchedAt) < Self.cacheTTL {
+            releaseStatuses[item.id] = .loaded(cache.releases)
+            return
+        }
+        let task = Task {
+            releaseStatuses[item.id] = .loading
+            do {
+                let releases = try await fetcher.fetchReleases(owner: repo.owner, repo: repo.repo)
+                releaseCaches[item.id] = (releases, Date())
+                releaseStatuses[item.id] = .loaded(releases)
+            } catch let error as VersionHistoryError {
+                releaseStatuses[item.id] = .failed(message: error.message)
+            } catch {
+                releaseStatuses[item.id] = .failed(message: error.localizedDescription)
+            }
+        }
+        releaseTasks[item.id] = task
+        await task.value
+        releaseTasks[item.id] = nil
+    }
+
+    public func releaseStatus(for item: BrewItem) -> ReleaseStatus { releaseStatuses[item.id] ?? .idle }
 
     /// Caption material: which source this timeline came from (§21).
     private static func origin(of route: HistoryRoute) -> String {

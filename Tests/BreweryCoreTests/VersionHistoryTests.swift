@@ -226,14 +226,16 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
 @Test func fetch_ghCLIRunsTheVerifiedCommandShape() async throws {
     var access = VersionHistoryFetcher.Access()
     access.source = .ghCLI
-    let key = "/fake/gh " + VersionHistoryFetcher.ghArguments(repo: coreFormulaRepo, path: "Formula/o/openssl@3.rb").joined(separator: " ")
+    let args = VersionHistoryFetcher.ghArguments(apiPath: "repos/Homebrew/homebrew-core/commits",
+                                                 params: [("path", "Formula/o/openssl@3.rb"), ("per_page", "30")])
+    let key = "/fake/gh " + args.joined(separator: " ")
     let exec = ScriptedExec(results: [key: brewOK(#"[{"sha":"b","commit":{"message":"openssl@3 3.5.9","author":{"date":"2026-01-01T00:00:00Z"}}}]"#)])
     let f = fetcher(access: access, exec: exec)
     let entries = try await f.fetch(route: .github(repo: coreFormulaRepo, path: "Formula/o/openssl@3.rb"), name: "openssl@3")
     #expect(entries.first?.versionBump == "3.5.9")
     // gh defaults to POST when -f params are present: -X GET must stay explicit.
     #expect(exec.calls == [key])
-    #expect(VersionHistoryFetcher.ghArguments(repo: "r", path: "p").prefix(3) == ["api", "repos/r/commits", "-X"])
+    #expect(args.prefix(3) == ["api", "repos/Homebrew/homebrew-core/commits", "-X"])
 }
 
 @Test func fetch_ghCLISurfacesGhOwnErrorWording() async {
@@ -280,6 +282,60 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
     await #expect(throws: VersionHistoryError(message: "Tap x/y is not cloned on disk (API mode) — no local git history.")) {
         try await f.fetch(route: .unsupported(reason: "Tap x/y is not cloned on disk (API mode) — no local git history."), name: "tool")
     }
+}
+
+// MARK: - Upstream releases
+
+/// Shape verified live 2026-10-30 against repos/umputun/agterm/releases.
+private let releasesJSON = """
+[
+  {"tag_name":"v0.39.1","name":"Version 0.39.1","published_at":"2026-10-30T06:13:39Z",
+   "html_url":"https://github.com/umputun/agterm/releases/tag/v0.39.1","draft":false,"prerelease":false},
+  {"tag_name":"v0.40.0-rc1","name":null,"published_at":"2026-10-29T06:00:00Z",
+   "html_url":"https://github.com/umputun/agterm/releases/tag/v0.40.0-rc1","draft":false,"prerelease":true},
+  {"tag_name":"wip","name":"author work in progress","html_url":"https://github.com/umputun/agterm/releases/tag/wip",
+   "draft":true,"prerelease":false}
+]
+"""
+
+@Test func decodeGitHubReleases_dropsDraftsKeepsPrereleases() throws {
+    let releases = try decodeGitHubReleases(Data(releasesJSON.utf8))
+    #expect(releases.count == 2) // draft dropped: author work, not a changelog entry
+    #expect(releases[0].tag == "v0.39.1")
+    #expect(releases[0].title == "Version 0.39.1")
+    #expect(releases[0].webURL?.absoluteString == "https://github.com/umputun/agterm/releases/tag/v0.39.1")
+    #expect(releases[0].publishedAt != nil)
+    #expect(releases[1].isPrerelease)
+    #expect(releases[1].title == nil) // null name → tag stands alone
+}
+
+@Test func decodeGitHubReleases_rejectsNonArray() {
+    #expect(throws: VersionHistoryError.self) {
+        try decodeGitHubReleases(Data("{\"message\":\"bad\"}".utf8))
+    }
+}
+
+@Test func fetchReleases_tokenModeHitsReleasesEndpoint() async throws {
+    var access = VersionHistoryFetcher.Access()
+    access.source = .token
+    access.token = "ghp_test"
+    let github = FakeGitHubJSON { _, _ in Data(releasesJSON.utf8) }
+    let f = fetcher(access: access, github: github)
+    let releases = try await f.fetchReleases(owner: "umputun", repo: "agterm")
+    #expect(releases.count == 2)
+    #expect(github.requests[0].url.absoluteString.contains("repos/umputun/agterm/releases"))
+    #expect(github.requests[0].url.absoluteString.contains("per_page=10"))
+}
+
+@Test func fetchReleases_ghCLIUsesTheSameGETForm() async throws {
+    var access = VersionHistoryFetcher.Access()
+    access.source = .ghCLI
+    let args = ["api", "repos/umputun/agterm/releases", "-X", "GET", "-f", "per_page=10"]
+    let exec = ScriptedExec(results: ["/fake/gh " + args.joined(separator: " "): brewOK(releasesJSON)])
+    let f = fetcher(access: access, exec: exec)
+    let releases = try await f.fetchReleases(owner: "umputun", repo: "agterm")
+    #expect(releases.first?.tag == "v0.39.1")
+    #expect(exec.calls == ["/fake/gh " + args.joined(separator: " ")])
 }
 
 // MARK: - Upstream release notes
@@ -341,4 +397,24 @@ private func tokenFetcher(json: @escaping @Sendable () async throws -> Data) -> 
     model.configure(source: .token, token: "ghp_test") // no-op when unchanged
     await model.load(for: item("wget"), taps: [])
     #expect(fake.requests.count == 2)
+}
+
+@MainActor @Test func model_releasesLoadCacheAndSkipNonGithubHomepages() async throws {
+    let (f, fake) = tokenFetcher { Data(releasesJSON.utf8) }
+    let model = VersionHistoryModel(fetcher: f)
+    let agterm = item("agterm", homepage: "https://github.com/umputun/agterm")
+    await model.loadReleases(for: agterm)
+    if case .loaded(let releases) = model.releaseStatus(for: agterm) {
+        #expect(releases.count == 2)
+    } else { Issue.record("expected loaded") }
+    await model.loadReleases(for: agterm) // cached within TTL
+    #expect(fake.requests.count == 1)
+    await model.loadReleases(for: agterm, force: true)
+    #expect(fake.requests.count == 2)
+    // GNU-homepage upstreams have no structured release source (§21) → no fetch, idle.
+    await model.loadReleases(for: item("wget", homepage: "https://www.gnu.org/software/wget/"))
+    #expect(fake.requests.count == 2)
+    #expect(model.releaseStatus(for: item("wget", homepage: "https://www.gnu.org/software/wget/")) == .idle)
+    model.configure(source: .off, token: "")
+    #expect(model.releaseStatus(for: agterm) == .idle) // releases follow the source flip too
 }

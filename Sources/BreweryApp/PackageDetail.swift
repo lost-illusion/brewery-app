@@ -63,6 +63,12 @@ struct PackageDetail: View {
                     }
                     if changelogSource != .off {
                         versionHistorySection(item)
+                        // Inline upstream releases when the homepage names a
+                        // GitHub repo (agterm → umputun/agterm); rows open the
+                        // release page, the header opens the whole releases list.
+                        if upstreamGitHubRepo(homepage: item.homepage) != nil {
+                            releasesSection(item)
+                        }
                     }
                     HStack(spacing: 10) {
                         if let homepage = item.homepage, let url = URL(string: homepage) {
@@ -89,6 +95,7 @@ struct PackageDetail: View {
                         await model.loadTaps()
                     }
                     await app.versionHistory.load(for: item, taps: model.taps)
+                    await app.versionHistory.loadReleases(for: item)
                 }
                 .onChange(of: item.id) { _, _ in showAllCommits = false }
             }
@@ -324,6 +331,71 @@ struct PackageDetail: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
                 .help("Open commit on GitHub")
+            }
+        }
+    }
+
+    // MARK: - Upstream releases (§21, best-effort)
+
+    private func releasesSection(_ item: BrewItem) -> some View {
+        GroupBox {
+            switch app.versionHistory.releaseStatus(for: item) {
+            case .idle, .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading releases…").font(.callout).foregroundStyle(.secondary)
+                }
+            case .loaded(let releases):
+                if releases.isEmpty {
+                    Text("No GitHub releases published for this upstream.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(releases) { release in releaseRow(release) }
+                    }
+                }
+            case .failed(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+            }
+        } label: {
+            HStack {
+                Text("Upstream releases")
+                Spacer()
+                if let notes = releaseNotesURL(for: item) {
+                    Button("All releases in browser") { NSWorkspace.shared.open(notes) }
+                        .font(.callout)
+                }
+            }
+        }
+    }
+
+    /// Tag click opens that release's page (its change notes) in the browser.
+    private func releaseRow(_ release: UpstreamRelease) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Button {
+                if let url = release.webURL { NSWorkspace.shared.open(url) }
+            } label: {
+                Text(release.tag)
+            }
+            .buttonStyle(.plain)
+            .font(.callout.bold())
+            .foregroundStyle(.tint)
+            .help("Open \(release.tag) on GitHub")
+            if release.isPrerelease {
+                Text("pre-release").font(.caption).foregroundStyle(.orange)
+            }
+            if let title = release.title {
+                Text(title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let date = release.publishedAt {
+                Text(date, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

@@ -174,6 +174,52 @@ private func parseTimestamp(_ raw: String?) -> Date? {
     return relaxed.date(from: raw)
 }
 
+// MARK: - Upstream releases (best-effort release notes, §21)
+
+/// One GitHub release of the package's upstream repo — the closest thing to a
+/// real changelog when the upstream publishes one (agterm → umputun/agterm).
+public struct UpstreamRelease: Identifiable, Hashable, Sendable {
+    public let id: String // release page URL, fallback tag
+    public let tag: String
+    public let title: String? // release name; nil when identical to the tag
+    public let publishedAt: Date?
+    public let webURL: URL?
+    public let isPrerelease: Bool
+}
+
+private struct GitHubRelease: Decodable {
+    let tagName: String?
+    let name: String?
+    let publishedAt: String?
+    let htmlUrl: String?
+    let draft: Bool?
+    let prerelease: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name", name, publishedAt = "published_at", htmlUrl = "html_url"
+        case draft, prerelease
+    }
+}
+
+/// Drafts are in-progress author work, never a changelog entry → dropped.
+/// Prereleases stay (labeled); a "name" equal to the tag adds no information.
+public func decodeGitHubReleases(_ data: Data) throws -> [UpstreamRelease] {
+    guard let list = try? JSONDecoder().decode([GitHubRelease].self, from: data) else {
+        throw VersionHistoryError(message: "GitHub returned an unexpected response.")
+    }
+    return list.compactMap { release in
+        guard release.draft != true, let tag = release.tagName, !tag.isEmpty else { return nil }
+        let title = release.name.flatMap { $0.isEmpty || $0 == tag ? nil : $0 }
+        return UpstreamRelease(
+            id: release.htmlUrl ?? tag,
+            tag: tag,
+            title: title,
+            publishedAt: parseTimestamp(release.publishedAt),
+            webURL: release.htmlUrl.flatMap(URL.init(string:)),
+            isPrerelease: release.prerelease == true)
+    }
+}
+
 public struct VersionHistoryError: Error, Equatable, Sendable {
     public let message: String
     public init(message: String) { self.message = message }
@@ -251,6 +297,9 @@ public struct VersionHistoryFetcher: Sendable {
     /// Timeline length per package: 30 commits is the GUI's page; unauthenticated
     /// GitHub would make even this hurt (§21), but the feature is token/gh-only.
     public static let perPage = 30
+    /// §21 coverage caveat: upstream release lists are uneven (aws-cli's contains a
+    /// stray 2018 dev tag); 10 recent entries is what the GUI shows.
+    public static let releasesPerPage = 10
 
     public var access: Access
     public let gitURL: URL?
@@ -268,42 +317,48 @@ public struct VersionHistoryFetcher: Sendable {
     }
 
     /// gh needs `-X GET` explicitly: with -f params gh defaults to POST.
-    /// Layout verified live 2026-10-30 against Formula/w/wget.rb.
-    public static func ghArguments(repo: String, path: String) -> [String] {
-        ["api", "repos/\(repo)/commits", "-X", "GET",
-         "-f", "path=\(path)", "-f", "per_page=\(perPage)"]
+    /// Layout verified live 2026-10-30 against Formula/w/wget.rb and
+    /// repos/umputun/agterm/releases.
+    public static func ghArguments(apiPath: String, params: [(String, String)]) -> [String] {
+        var args = ["api", apiPath, "-X", "GET"]
+        for (key, value) in params { args.append(contentsOf: ["-f", "\(key)=\(value)"]) }
+        return args
     }
 
-    public static func commitsURL(repo: String, path: String) -> URL {
-        var components = URLComponents(string: "https://api.github.com/repos/\(repo)/commits")!
-        components.queryItems = [URLQueryItem(name: "path", value: path),
-                                 URLQueryItem(name: "per_page", value: String(perPage))]
+    public static func apiURL(apiPath: String, params: [(String, String)]) -> URL {
+        var components = URLComponents(string: "https://api.github.com/\(apiPath)")!
+        components.queryItems = params.map { URLQueryItem(name: $0.0, value: $0.1) }
         return components.url!
+    }
+
+    /// One GitHub GET in whichever authenticated mode the settings chose (§23).
+    private func githubJSON(apiPath: String, params: [(String, String)]) async throws -> Data {
+        switch access.source {
+        case .off:
+            throw VersionHistoryError(message: "Version history is off — pick a GitHub source in Settings → Changelogs.")
+        case .token:
+            let token = access.token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !token.isEmpty else {
+                throw VersionHistoryError(message: "No GitHub token set — add one in Settings → Changelogs.")
+            }
+            return try await github.gitHubJSON(url: Self.apiURL(apiPath: apiPath, params: params), token: token)
+        case .ghCLI:
+            guard let gh = ghURL else {
+                throw VersionHistoryError(message: "gh not found — install it with `brew install gh`.")
+            }
+            let result = try await exec.run(gh, Self.ghArguments(apiPath: apiPath, params: params))
+            guard result.exitCode == 0 else {
+                throw VersionHistoryError(message: Self.commandFailure(result, fallback: "gh api failed (exit \(result.exitCode))."))
+            }
+            return result.stdout
+        }
     }
 
     public func fetch(route: HistoryRoute, name: String) async throws -> [VersionHistoryEntry] {
         switch route {
         case .github(let repo, let path):
-            let data: Data
-            switch access.source {
-            case .off:
-                throw VersionHistoryError(message: "Version history is off — pick a GitHub source in Settings → Changelogs.")
-            case .token:
-                let token = access.token.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !token.isEmpty else {
-                    throw VersionHistoryError(message: "No GitHub token set — add one in Settings → Changelogs.")
-                }
-                data = try await github.gitHubJSON(url: Self.commitsURL(repo: repo, path: path), token: token)
-            case .ghCLI:
-                guard let gh = ghURL else {
-                    throw VersionHistoryError(message: "gh not found — install it with `brew install gh`.")
-                }
-                let result = try await exec.run(gh, Self.ghArguments(repo: repo, path: path))
-                guard result.exitCode == 0 else {
-                    throw VersionHistoryError(message: Self.commandFailure(result, fallback: "gh api failed (exit \(result.exitCode))."))
-                }
-                data = result.stdout
-            }
+            let data = try await githubJSON(apiPath: "repos/\(repo)/commits",
+                                            params: [("path", path), ("per_page", String(Self.perPage))])
             return try decodeGitHubCommits(data, name: name)
 
         case .tapGit(let directory, let file):
@@ -322,6 +377,15 @@ public struct VersionHistoryFetcher: Sendable {
         case .unsupported(let reason):
             throw VersionHistoryError(message: reason)
         }
+    }
+
+    /// Upstream release notes for a GitHub-homepage package (§21), e.g.
+    /// agterm → umputun/agterm releases. Best-effort: uneven coverage is a
+    /// fact about upstreams, not an error — an empty list renders as "none published".
+    public func fetchReleases(owner: String, repo: String) async throws -> [UpstreamRelease] {
+        let data = try await githubJSON(apiPath: "repos/\(owner)/\(repo)/releases",
+                                        params: [("per_page", String(Self.releasesPerPage))])
+        return try decodeGitHubReleases(data)
     }
 
     private static func commandFailure(_ result: BrewResult, fallback: String) -> String {
