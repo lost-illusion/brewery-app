@@ -12,6 +12,9 @@ canonical reference. Current phase: compatibility research only — no app code 
   spawning another.
 - A spawned sub-agent must **not** spawn further sub-agents. State this explicitly in
   every spawn prompt.
+- After any change to app code or resources: rebuild the bundle
+  (`./Tools/make-app-bundle.sh`) and relaunch `build/Brewery.app` without asking.
+  If the app is running, quit it first and launch the new build.
 
 ## Ground rules for research
 
