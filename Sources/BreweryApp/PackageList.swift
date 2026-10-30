@@ -7,6 +7,7 @@ struct PackageList: View {
     @Binding var selectedID: String?
     let model: InventoryModel
     let jqAvailable: Bool
+    @Binding var history: NavigationHistory
 
     private var filtered: [BrewItem] {
         items(model.items, in: section, query: query.isEmpty ? nil : query,
@@ -20,6 +21,31 @@ struct PackageList: View {
         }
         .searchable(text: $query, prompt: "Filter name or description")
         .toolbar {
+            // Detail-page history sits left of Refresh in the same trailing
+            // cluster; write-back to selectedID is no-op in the history
+            // (ContentView tracks it via onChange).
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    if let id = history.goBack() { selectedID = id }
+                } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!history.canGoBack)
+                .keyboardShortcut("[", modifiers: .command)
+                .accessibilityLabel("Back to previous package")
+                .help("Previous package (⌘[)")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    if let id = history.goForward() { selectedID = id }
+                } label: {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!history.canGoForward)
+                .keyboardShortcut("]", modifiers: .command)
+                .accessibilityLabel("Forward to next package")
+                .help("Next package (⌘])")
+            }
             ToolbarItem(placement: .primaryAction) {
                 // Manual refresh: re-runs list+info now; the manifest follows its
                 // 24 h cache (the app never runs `brew update` — design §Freshness).

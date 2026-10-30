@@ -10,6 +10,7 @@ struct ContentView: View {
     @State private var section: BrewSection = .all
     @State private var query = ""
     @State private var selectedID: String?
+    @State private var history = NavigationHistory()
     @State private var showBrewSetup = false
 
     var body: some View {
@@ -19,11 +20,19 @@ struct ContentView: View {
                     model: app.model)
         } content: {
             PackageList(section: section, query: $query, selectedID: $selectedID,
-                        model: app.model, jqAvailable: app.jqAvailable)
+                        model: app.model, jqAvailable: app.jqAvailable,
+                        history: $history)
                 .navigationTitle(section.title)
         } detail: {
             PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
-                          bottleTag: app.model.manifestBottleTag)
+                          allItems: app.model.items,
+                          bottleTag: app.model.manifestBottleTag,
+                          openPackage: { id in selectedID = id })
+        }
+        .onChange(of: selectedID) { _, new in
+            // Every selection funnel (list rows, dependency links, back/forward
+            // write-backs) lands here; select() no-ops on the current page.
+            if let new { history.select(new) }
         }
         .task {
             if app.model.state == .idle { await app.model.refresh(reason: .manual) }
