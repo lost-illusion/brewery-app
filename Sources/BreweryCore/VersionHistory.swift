@@ -17,14 +17,28 @@ public struct VersionHistoryEntry: Identifiable, Hashable, Sendable, Codable {
 /// Homebrew's version-bump subjects are bare (`ace 8.0.8`,
 /// `openssl@3 3.5.9 (downgrade to LTS)`); everything else prefixes the name
 /// with a colon (`ace: update 8.0.8 bottle.`) — compat §21. Tap authors are
-/// unguaranteed, so a no-match just means "not recognized as a bump".
+/// unguaranteed, but the umputun/apps bot shape `Brew cask update for revmux
+/// version v0.2.7` (verified live 2026-10-30) recurs across taps, so a
+/// `<name> version <ver>` anywhere in the subject also counts; the leading `v`
+/// is stripped so the bump still matches installed versions and release tags.
+/// A no-match just means "not recognized as a bump".
 public func versionBump(in subject: String, name: String) -> String? {
-    let pattern = "^\(NSRegularExpression.escapedPattern(for: name)) (\\S+)"
-    let regex = try? NSRegularExpression(pattern: pattern)
-    guard let match = regex?.firstMatch(in: subject, range: NSRange(subject.startIndex..., in: subject)),
-          let range = Range(match.range(at: 1), in: subject)
-    else { return nil }
-    return String(subject[range])
+    let escaped = NSRegularExpression.escapedPattern(for: name)
+    let subjectRange = NSRange(subject.startIndex..., in: subject)
+    let bare = try? NSRegularExpression(pattern: "^\(escaped) (\\S+)")
+    if let match = bare?.firstMatch(in: subject, range: subjectRange),
+       let range = Range(match.range(at: 1), in: subject) {
+        return String(subject[range])
+    }
+    // \b keeps "ace" from matching inside "race"/"ace2"; the version token
+    // starts with a digit (after an optional v) so trailing prose can't ride in.
+    let named = try? NSRegularExpression(pattern: "\\b\(escaped) version (v?[0-9][^\\s,]*)")
+    if let match = named?.firstMatch(in: subject, range: subjectRange),
+       let range = Range(match.range(at: 1), in: subject) {
+        let token = String(subject[range])
+        return token.hasPrefix("v") ? String(token.dropFirst()) : token
+    }
+    return nil
 }
 
 // MARK: - Routing

@@ -124,15 +124,20 @@ private enum TapInfoDecoderStub {
 
 // MARK: - Version bump subjects
 
-@Test func versionBump_bareSubjectsOnly() {
+@Test func versionBump_bareAndNamedVersionSubjects() {
     #expect(versionBump(in: "ace 8.0.8", name: "ace") == "8.0.8")
     #expect(versionBump(in: "openssl@3 3.5.9 (downgrade to LTS)", name: "openssl@3") == "3.5.9")
     #expect(versionBump(in: "wget 1.25.0_1", name: "wget") == "1.25.0_1")
     #expect(versionBump(in: "agterm 0.39.1", name: "agterm") == "0.39.1") // tap author, same shape
     #expect(versionBump(in: "ace: update 8.0.8 bottle.", name: "ace") == nil)
     #expect(versionBump(in: "wget: migrate to `openssl@4`", name: "wget") == nil)
-    #expect(versionBump(in: "Brew formula update for reproxy version v1.7.2", name: "reproxy") == nil)
+    // umputun/apps bot shape (reproxy/revmux, verified live 2026-10-30): leading v stripped
+    #expect(versionBump(in: "Brew formula update for reproxy version v1.7.2", name: "reproxy") == "1.7.2")
+    #expect(versionBump(in: "Brew cask update for revmux version v0.2.7", name: "revmux") == "0.2.7")
+    #expect(versionBump(in: "Restore revmux's postflight_steps, fixed at the source this time", name: "revmux") == nil)
     #expect(versionBump(in: "ace2 1.0", name: "ace") == nil) // prefix collision
+    #expect(versionBump(in: "ace2 version 1.0", name: "ace") == nil) // … also in the new shape
+    #expect(versionBump(in: "race version 1.0", name: "ace") == nil) // … and mid-word
 }
 
 // MARK: - GitHub commits JSON decode
