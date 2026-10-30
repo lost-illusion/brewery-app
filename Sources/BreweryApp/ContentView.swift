@@ -7,28 +7,51 @@ typealias BrewSection = BreweryCore.Section
 struct ContentView: View {
     @Environment(AppState.self) private var app
     @Environment(\.scenePhase) private var scenePhase
-    @State private var section: BrewSection = .all
+    @State private var navigation: BrewSection = .all
     @State private var query = ""
     @State private var selectedID: String?
+    @State private var selectedTapID: String?
     @State private var history = NavigationHistory()
     @State private var showBrewSetup = false
 
     var body: some View {
         NavigationSplitView {
-            Sidebar(selection: $section,
+            Sidebar(selection: $navigation,
                     counts: sidebarCounts(app.model.items, greedy: app.model.settings.greedyOutdated),
                     model: app.model)
         } content: {
-            PackageList(section: section, query: $query, selectedID: $selectedID,
-                        model: app.model, jqAvailable: app.jqAvailable,
-                        history: $history)
-                .navigationTitle(section.title)
+            // Sidebar selection stays on BreweryCore.Section: the macOS sidebar
+            // List silently drops all row selection for any other tag/binding
+            // type — a custom String-raw enum included (verified 2026-10-30 by
+            // bisect; compat §7). Taps is therefore a Section case, and
+            // PackageList never receives it — the switches route it away.
+            switch navigation {
+            case .taps:
+                TapsList(model: app.model, jqAvailable: app.jqAvailable,
+                         selectedTapID: $selectedTapID)
+                    .navigationTitle("Taps")
+            default:
+                PackageList(section: navigation, query: $query, selectedID: $selectedID,
+                            model: app.model, jqAvailable: app.jqAvailable,
+                            history: $history)
+                    .navigationTitle(navigation.title)
+            }
         } detail: {
-            PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
-                          allItems: app.model.items,
+            switch navigation {
+            case .taps:
+                TapDetail(tap: selectedTapID.flatMap { id in app.model.taps.first { $0.id == id } },
                           model: app.model,
-                          bottleTag: app.model.manifestBottleTag,
-                          openPackage: { id in selectedID = id })
+                          openPackage: { id in
+                              navigation = .all
+                              selectedID = id
+                          })
+            default:
+                PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
+                              allItems: app.model.items,
+                              model: app.model,
+                              bottleTag: app.model.manifestBottleTag,
+                              openPackage: { id in selectedID = id })
+            }
         }
         .onChange(of: selectedID) { _, new in
             // Every selection funnel (list rows, dependency links, back/forward
@@ -55,6 +78,7 @@ extension BrewSection {
         case .outdated: "Outdated"
         case .pinned: "Pinned"
         case .deprecated: "Deprecated"
+        case .taps: "Taps"
         }
     }
 
@@ -66,6 +90,7 @@ extension BrewSection {
         case .outdated: "arrow.up.circle"
         case .pinned: "pin"
         case .deprecated: "exclamationmark.triangle"
+        case .taps: "arrow.down.app"
         }
     }
 }

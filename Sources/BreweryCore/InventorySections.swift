@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Section: String, CaseIterable {
-    case all, formulae, casks, outdated, pinned, deprecated
+    case all, formulae, casks, outdated, pinned, deprecated, taps
 }
 
 /// Local filtering only — never re-queries brew (spec Goal 5).
@@ -28,6 +28,7 @@ private func matchesSection(_ item: BrewItem, _ section: Section, greedy: Bool) 
         }
     case .pinned: item.isPinned
     case .deprecated: item.isDeprecated
+    case .taps: false // sidebar pane with its own list; no inventory row belongs to it
     }
 }
 

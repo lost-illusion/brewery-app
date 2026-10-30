@@ -1,0 +1,53 @@
+[
+  {
+    "name": "homebrew/cask",
+    "user": "Homebrew",
+    "repo": "cask",
+    "repository": "cask",
+    "path": "/opt/homebrew/Library/Taps/homebrew/homebrew-cask",
+    "installed": false,
+    "official": true,
+    "trusted": true,
+    "formula_names": [],
+    "cask_tokens": ["1password", "firefox"]
+  },
+  {
+    "name": "homebrew/core",
+    "user": "Homebrew",
+    "repo": "core",
+    "repository": "core",
+    "path": "/opt/homebrew/Library/Taps/homebrew/homebrew-core",
+    "installed": false,
+    "official": true,
+    "trusted": true,
+    "formula_names": ["ace", "bat"],
+    "cask_tokens": []
+  },
+  {
+    "name": "umputun/apps",
+    "user": "umputun",
+    "repo": "apps",
+    "repository": "apps",
+    "path": "/opt/homebrew/Library/Taps/umputun/homebrew-apps",
+    "installed": true,
+    "official": false,
+    "trusted": false,
+    "formula_names": ["umputun/apps/ralphex", "umputun/apps/revdiff"],
+    "cask_tokens": ["umputun/apps/agterm", "umputun/apps/revmux"],
+    "formula_files": [
+      "/opt/homebrew/Library/Taps/umputun/homebrew-apps/Formula/ralphex.rb",
+      "/opt/homebrew/Library/Taps/umputun/homebrew-apps/Formula/revdiff.rb"
+    ],
+    "cask_files": [
+      "/opt/homebrew/Library/Taps/umputun/homebrew-apps/Casks/agterm.rb",
+      "/opt/homebrew/Library/Taps/umputun/homebrew-apps/Casks/revmux.rb"
+    ],
+    "command_files": [],
+    "remote": "https://github.com/umputun/homebrew-apps",
+    "custom_remote": false,
+    "private": false,
+    "HEAD": "1391b964968f7bea4711911f4500de2aadd88a85",
+    "last_commit": "2 days ago",
+    "branch": "master"
+  }
+]

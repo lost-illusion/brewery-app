@@ -1,0 +1,26 @@
+[
+  { "name": "example/mini" },
+  {
+    "name": "example/nulls",
+    "user": "example",
+    "repo": "nulls",
+    "installed": true,
+    "official": false,
+    "trusted": null,
+    "formula_names": null,
+    "cask_tokens": null,
+    "command_files": null,
+    "remote": null,
+    "not_a_known_key": { "nested": true }
+  },
+  {
+    "name": "collide/tap",
+    "user": "collide",
+    "repo": "tap",
+    "installed": true,
+    "official": false,
+    "trusted": true,
+    "formula_names": ["collide/tap/ace"],
+    "cask_tokens": ["collide/tap/firefox"]
+  }
+]

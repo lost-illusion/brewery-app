@@ -28,6 +28,14 @@ private func fixtureItems() throws -> [BrewItem] {
     #expect(greedyCounts[.outdated] == 1) // wireshark-app (auto_updates) surfaces as selfUpdating
 }
 
+@Test func sections_tapsIsNotAnInventoryFilter() throws {
+    // Section.taps exists so the sidebar can use its proven tag/binding shape
+    // for the taps pane (compat §7); it must never match inventory rows.
+    let rows = try fixtureItems()
+    #expect(items(rows, in: .taps, query: nil, greedy: false).isEmpty)
+    #expect(sidebarCounts(rows, greedy: false)[.taps] == 0)
+}
+
 @Test func sections_outdatedSectionExcludesUnknown() throws {
     let rows = try fixtureItems()
     let ralphex = try #require(rows.first { $0.name == "ralphex" })

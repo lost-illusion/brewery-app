@@ -43,6 +43,30 @@ extension ManifestFetcher: ManifestFetching {}
 /// Which brew step an upgrade is running right now (drives the UI progress label).
 public enum UpgradePhase: Equatable { case updatingHomebrew, upgradingPackages }
 
+/// A tap mutation the app performed (or is performing). Wording lives here so
+/// the banner names the action the user confirmed, not a generic "working…".
+public enum TapAction: Equatable {
+    case tapping(name: String), untapping(name: String)
+    case trusting(name: String), untrusting(name: String)
+
+    public var label: String {
+        switch self {
+        case .tapping(let n): "Tapping \(n)…"
+        case .untapping(let n): "Untapping \(n)…"
+        case .trusting(let n): "Trusting \(n)…"
+        case .untrusting(let n): "Untrusting \(n)…"
+        }
+    }
+}
+
+/// Tap-action state, kept apart from ViewState and UpgradeState so a failed
+/// `brew untap` is not reported as a refresh or upgrade failure.
+public enum TapActionState: Equatable {
+    case idle
+    case running(TapAction)
+    case failed(action: TapAction, message: String)
+}
+
 /// Upgrade-action state, separate from ViewState so an upgrade failure never
 /// masquerades as a refresh failure (and vice versa).
 public enum UpgradeState: Equatable { case idle, running(phase: UpgradePhase), failed(message: String) }
@@ -58,6 +82,12 @@ public final class InventoryModel {
     public private(set) var inventoryUpdated: Date?
     public private(set) var versionDataAsOf: Date?
     public private(set) var manifestBottleTag: String? // the bottle tag the manifest was fetched for
+    public private(set) var taps: [TapInfo] = []
+    public private(set) var tapsState: ViewState = .idle
+    public private(set) var tapsUpdated: Date?
+    public private(set) var tapAction: TapActionState = .idle
+    /// true when taps came from `brew tap` (names only) because jq is absent.
+    public private(set) var tapsNamesOnly = false
     public var settings: InventorySettings
 
     private let runner: CommandRunning
@@ -68,6 +98,8 @@ public final class InventoryModel {
 
     private var refreshTask: Task<Void, Never>?
     private var upgradeTask: Task<Void, Never>?
+    private var tapsTask: Task<Void, Never>?
+    private var tapActionTask: Task<Void, Never>?
     private var lastFailure: Date?
     private var lastManifest: PackageManifest?
     private static let failureBackoff: TimeInterval = 60
@@ -236,6 +268,125 @@ public final class InventoryModel {
 
     private func failUpgrade(result: BrewResult) {
         upgrade = .failed(message: failureMessage(for: result))
+    }
+
+    // MARK: - Taps
+
+    /// Taps load lazily (the Taps pane asks for them), never as part of an
+    /// inventory refresh: `tap-info --installed --json` is ~2 s and ~340 KB on
+    /// this machine because the official API taps list every token (compat §7).
+    public func loadTaps(force: Bool = false) async {
+        if let existing = tapsTask { await existing.value; return } // single flight
+        if !force, tapsState == .ready { return }
+        if let refresh = refreshTask { await refresh.value } // never two brews of ours at once
+        let task = Task { await self.performLoadTaps() }
+        tapsTask = task
+        await task.value
+        tapsTask = nil
+    }
+
+    /// `brew tap user/repo [URL]` (mutating). The GUI confirms first; the name
+    /// is validated here too so a malformed target never reaches brew.
+    public func addTap(name: String, remote: String?) async {
+        guard case .success(let parts) = parseTapName(name) else {
+            tapAction = .failed(action: .tapping(name: name.trimmingCharacters(in: .whitespacesAndNewlines)),
+                                message: parseTapNameError(name))
+            return
+        }
+        if let problem = validateTapRemote(remote ?? "") {
+            tapAction = .failed(action: .tapping(name: "\(parts.user)/\(parts.repo)"), message: problem)
+            return
+        }
+        let qualified = "\(parts.user)/\(parts.repo)"
+        var args = ["tap", qualified]
+        let trimmedRemote = (remote ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedRemote.isEmpty { args.append(trimmedRemote) } // two-argument form: any git transport (§7)
+        await runTapAction(.tapping(name: qualified), args: args, reloadInventory: true)
+    }
+
+    /// `brew untap [--force] <tap>`. --force uninstalls the tap's packages
+    /// first, which is the only way brew lets a tap with installed items go
+    /// away; the GUI exposes that as a separate confirmed choice.
+    public func removeTap(_ tap: TapInfo, uninstallingItems: Bool) async {
+        var args = ["untap"]
+        if uninstallingItems { args.append("--force") }
+        args.append(tap.name)
+        await runTapAction(.untapping(name: tap.name), args: args, reloadInventory: true)
+    }
+
+    /// Tap-level trust (`brew trust --tap`), the knob brew itself suggests when
+    /// it prints "Skipping <tap> because it is not trusted" (compat §7).
+    /// It re-reads the inventory too: trusting a tap is what makes `brew info`
+    /// report its installed packages at all, so the rows change shape (§43).
+    public func trustTap(_ tap: TapInfo) async {
+        await runTapAction(.trusting(name: tap.name), args: ["trust", "--tap", tap.name], reloadInventory: true)
+    }
+
+    public func untrustTap(_ tap: TapInfo) async {
+        await runTapAction(.untrusting(name: tap.name), args: ["untrust", "--tap", tap.name], reloadInventory: true)
+    }
+
+    private func parseTapNameError(_ raw: String) -> String {
+        if case .failure(let problem) = parseTapName(raw) { return problem.message }
+        return "invalid tap name"
+    }
+
+    private func runTapAction(_ action: TapAction, args: [String], reloadInventory: Bool) async {
+        if let existing = tapActionTask { await existing.value; return } // one mutation at a time
+        if let refresh = refreshTask { await refresh.value }
+        if let upgrade = upgradeTask { await upgrade.value }
+        if brewProbe.isBrewRunningExternally() {
+            tapAction = .failed(action: action, message: "brew is busy (another brew process is running) — wait for it, then retry")
+            return
+        }
+        let task = Task { await self.performTapAction(action, args: args, reloadInventory: reloadInventory) }
+        tapActionTask = task
+        await task.value
+        tapActionTask = nil
+    }
+
+    private func performTapAction(_ action: TapAction, args: [String], reloadInventory: Bool) async {
+        tapAction = .running(action)
+        do {
+            let result = try await runner.run(args)
+            guard result.exitCode == 0 else {
+                tapAction = .failed(action: action, message: failureMessage(for: result))
+                return
+            }
+            tapAction = .idle
+            await performLoadTaps()
+            // Tapping/untapping changes which packages exist and where they came from.
+            if reloadInventory { await performRefresh(forceManifest: true) }
+        } catch {
+            tapAction = .failed(action: action, message: "brew command failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func performLoadTaps() async {
+        tapsState = .loading
+        do {
+            if jqAvailable {
+                let result = try await runner.run(["tap-info", "--installed", "--json"])
+                guard result.exitCode == 0 else { failTaps(message: failureMessage(for: result)); return }
+                taps = sortedTapsForDisplay(try TapInfo.decode(result.stdout))
+                tapsNamesOnly = false
+            } else {
+                // No jq → the app never asks brew for JSON (same posture as list/info).
+                let result = try await runner.run(["tap"])
+                guard result.exitCode == 0 else { failTaps(message: failureMessage(for: result)); return }
+                taps = sortedTapsForDisplay(parseTapNames(String(decoding: result.stdout, as: UTF8.self))
+                    .map(TapInfo.init(name:)))
+                tapsNamesOnly = true
+            }
+            tapsUpdated = Date()
+            tapsState = .ready
+        } catch {
+            failTaps(message: "brew command failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func failTaps(message: String) {
+        tapsState = .failed(message: message)
     }
 
     /// Recompute badges after a settings change (greedy toggle) using the
