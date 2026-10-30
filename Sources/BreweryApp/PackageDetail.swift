@@ -11,6 +11,9 @@ struct PackageDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(item)
+                    if let notice = DeprecationNotice(item) {
+                        DeprecationBanner(notice: notice)
+                    }
                     if let desc = item.desc, !desc.isEmpty {
                         Text(desc)
                             .font(.callout)
@@ -83,7 +86,6 @@ struct PackageDetail: View {
             if item.kind == .cask, item.autoUpdates { row("Auto-updates", "yes") }
             if let latest = item.latestVersion { row("Latest known", latest) }
             if let bottleTag { row("Bottle tag", bottleTag) }
-            if item.isDeprecated, let reason = item.deprecationReason { row("Deprecation", reason) }
         }
     }
 
@@ -92,5 +94,33 @@ struct PackageDetail: View {
             Text(label).foregroundStyle(.secondary)
             Text(value).textSelection(.enabled)
         }
+    }
+}
+
+/// Site-parity banner: formulae.brew.sh prefixes disabled headings with a red
+/// ⛔ and deprecated ones with a ⚠; wording mirrors the site's heading title.
+private struct DeprecationBanner: View {
+    let notice: DeprecationNotice
+
+    private var isDisabled: Bool { notice.status == .disabled }
+    private var tint: Color { isDisabled ? .red : .orange }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: isDisabled ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(notice.text)
+                if let command = notice.replacementCommand {
+                    Text("Replacement: \(command)")
+                        .font(.callout)
+                }
+            }
+        }
+        .font(.callout)
+        .foregroundStyle(tint)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(tint.opacity(0.12))
+        .textSelection(.enabled)
     }
 }

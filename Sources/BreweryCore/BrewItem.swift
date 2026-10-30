@@ -27,6 +27,10 @@ public struct BrewItem: Identifiable, Hashable, Codable {
     public let deprecationReason: String?
     public let isDisabled: Bool
     public let disabledReason: String?
+    public let deprecationDate: String? // ISO "2026-10-15", verbatim from info JSON
+    public let disableDate: String?
+    public let replacementFormula: String? // merger resolves: disable pair when disabled, else deprecation pair
+    public let replacementCask: String?
     public let desc: String?
     public let homepage: String?
     public let installedAt: Date?

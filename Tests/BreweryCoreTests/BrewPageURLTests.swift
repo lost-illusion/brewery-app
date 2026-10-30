@@ -7,6 +7,7 @@ private func item(_ kind: BrewItem.Kind, name: String, tap: String?) -> BrewItem
              installedVersions: ["1.0"], linkedVersion: nil, optlinkedVersion: nil,
              pinnedVersion: nil, latestVersion: nil, outdated: nil, isPinned: false,
              isDeprecated: false, deprecationReason: nil, isDisabled: false, disabledReason: nil,
+             deprecationDate: nil, disableDate: nil, replacementFormula: nil, replacementCask: nil,
              desc: nil, homepage: nil, installedAt: nil, kegOnly: false,
              autoUpdates: false, dependencies: [], sourceState: .complete)
 }

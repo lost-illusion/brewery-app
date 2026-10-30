@@ -8,6 +8,7 @@ private func makeItem(_ kind: BrewItem.Kind, name: String, installed: [String],
              installedVersions: installed, linkedVersion: linked, optlinkedVersion: nil,
              pinnedVersion: nil, latestVersion: nil, outdated: nil, isPinned: false,
              isDeprecated: false, deprecationReason: nil, isDisabled: false, disabledReason: nil,
+             deprecationDate: nil, disableDate: nil, replacementFormula: nil, replacementCask: nil,
              desc: nil, homepage: nil, installedAt: nil, kegOnly: false,
              autoUpdates: autoUpdates, dependencies: [], sourceState: .complete)
 }

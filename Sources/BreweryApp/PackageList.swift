@@ -110,11 +110,16 @@ struct PackageRow: View {
                 if item.isPinned {
                     Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
                 }
-                if item.isDeprecated {
+                if item.isDisabled {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .help(DeprecationNotice(item)?.text ?? "disabled")
+                } else if item.isDeprecated {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                        .help(item.deprecationReason ?? "deprecated")
+                        .help(DeprecationNotice(item)?.text ?? "deprecated")
                 }
                 Spacer()
                 versionStatus

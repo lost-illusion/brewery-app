@@ -7,6 +7,22 @@ import Foundation
 public struct InventoryMerger {
     static let listOnlyReason = "no source info — untrusted tap or API skew"
 
+    // Homebrew's own precedence (DeprecateDisable.message): when disabled, the
+    // disable replacement pair wins; otherwise the deprecation pair.
+    static func formulaReplacements(_ fi: InfoSnapshot.FormulaInfo?) -> (formula: String?, cask: String?) {
+        guard let fi else { return (nil, nil) }
+        return fi.disabled
+            ? (fi.disableReplacementFormula, fi.disableReplacementCask)
+            : (fi.deprecationReplacementFormula, fi.deprecationReplacementCask)
+    }
+
+    static func caskReplacements(_ ci: InfoSnapshot.CaskInfo?) -> (formula: String?, cask: String?) {
+        guard let ci else { return (nil, nil) }
+        return ci.disabled
+            ? (ci.disableReplacementFormula, ci.disableReplacementCask)
+            : (ci.deprecationReplacementFormula, ci.deprecationReplacementCask)
+    }
+
     public static func merge(list: ListSnapshot, info: InfoSnapshot) -> [BrewItem] {
         let infoFormulae = Dictionary(info.formulae.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         let infoCasks = Dictionary(info.casks.map { ($0.token, $0) }, uniquingKeysWith: { a, _ in a })
@@ -17,6 +33,7 @@ public struct InventoryMerger {
         for f in list.formulae {
             let fi = infoFormulae[f.name]
             if fi != nil { matchedFormulaNames.insert(f.name) }
+            let reps = formulaReplacements(fi)
             items.append(BrewItem(
                 id: fi?.fullName ?? f.name,
                 kind: .formula,
@@ -34,6 +51,10 @@ public struct InventoryMerger {
                 deprecationReason: fi?.deprecationReason,
                 isDisabled: fi?.disabled ?? false,
                 disabledReason: fi?.disabledReason,
+                deprecationDate: fi?.deprecationDate,
+                disableDate: fi?.disableDate,
+                replacementFormula: reps.formula,
+                replacementCask: reps.cask,
                 desc: fi?.desc,
                 homepage: fi?.homepage,
                 installedAt: fi?.installed.first?.time,
@@ -47,6 +68,7 @@ public struct InventoryMerger {
         for c in list.casks {
             let ci = infoCasks[c.token]
             if ci != nil { matchedCaskTokens.insert(c.token) }
+            let reps = caskReplacements(ci)
             items.append(BrewItem(
                 id: c.token,
                 kind: .cask,
@@ -62,8 +84,12 @@ public struct InventoryMerger {
                 isPinned: (ci?.pinned ?? false) || c.pinnedVersion != nil,
                 isDeprecated: ci?.deprecated ?? false,
                 deprecationReason: ci?.deprecationReason,
-                isDisabled: false,
-                disabledReason: nil,
+                isDisabled: ci?.disabled ?? false,
+                disabledReason: ci?.disabledReason,
+                deprecationDate: ci?.deprecationDate,
+                disableDate: ci?.disableDate,
+                replacementFormula: reps.formula,
+                replacementCask: reps.cask,
                 desc: ci?.desc,
                 homepage: ci?.homepage,
                 installedAt: ci?.installedTime,
@@ -93,6 +119,10 @@ public struct InventoryMerger {
                 deprecationReason: fi.deprecationReason,
                 isDisabled: fi.disabled,
                 disabledReason: fi.disabledReason,
+                deprecationDate: fi.deprecationDate,
+                disableDate: fi.disableDate,
+                replacementFormula: formulaReplacements(fi).formula,
+                replacementCask: formulaReplacements(fi).cask,
                 desc: fi.desc,
                 homepage: fi.homepage,
                 installedAt: fi.installed.first?.time,
@@ -118,8 +148,12 @@ public struct InventoryMerger {
                 isPinned: ci.pinned,
                 isDeprecated: ci.deprecated,
                 deprecationReason: ci.deprecationReason,
-                isDisabled: false,
-                disabledReason: nil,
+                isDisabled: ci.disabled,
+                disabledReason: ci.disabledReason,
+                deprecationDate: ci.deprecationDate,
+                disableDate: ci.disableDate,
+                replacementFormula: caskReplacements(ci).formula,
+                replacementCask: caskReplacements(ci).cask,
                 desc: ci.desc,
                 homepage: ci.homepage,
                 installedAt: ci.installedTime,

@@ -27,3 +27,25 @@ import Testing
     #expect(ace.versionsStable == "8.0.8")
     #expect(info.casks.count == 3)
 }
+
+@Test func infoJSON_decode_deprecationFields() throws {
+    let info = try InfoSnapshot.decode(Data(#"""
+    {"formulae":[{"name":"py","full_name":"homebrew/core/py","installed":[],
+      "deprecated":true,"deprecation_date":"2025-10-15","deprecation_reason":"deprecated_upstream",
+      "disabled":true,"disable_date":"2026-10-15","disable_reason":"deprecated_upstream",
+      "disable_replacement_formula":"py@3"}],
+     "casks":[{"token":"old-app","installed":"1.0","deprecated":true,
+      "deprecation_reason":"moved_to_mas","deprecation_replacement_cask":"new-app"}]}
+    """#.utf8))
+    let f = try #require(info.formulae.first)
+    #expect(f.deprecationDate == "2025-10-15")
+    #expect(f.disableDate == "2026-10-15")
+    #expect(f.disabledReason == "deprecated_upstream")
+    #expect(f.disableReplacementFormula == "py@3")
+    #expect(f.deprecationReplacementCask == nil)
+    let c = try #require(info.casks.first)
+    #expect(c.deprecated == true)
+    #expect(c.deprecationReason == "moved_to_mas")
+    #expect(c.disabled == false) // missing key → false
+    #expect(c.deprecationReplacementCask == "new-app")
+}

@@ -58,6 +58,32 @@ private func realSnapshots() throws -> (ListSnapshot, InfoSnapshot) {
     #expect(ghost.installedVersions == ["1.0"]) // versions fall back to info.installed
 }
 
+@Test func merger_caskDisabledPropagates() throws {
+    // Casks carry the same disable_* fields as formulae; the merger must not
+    // hardcode them away (old behavior: isDisabled always false for casks).
+    let list = try ListSnapshot.decode(json(#"{"formulae":[],"casks":[{"token":"old-app","versions":["1.0"]}]}"#))
+    let info = try InfoSnapshot.decode(json(#"""
+    {"formulae":[],"casks":[{"token":"old-app","installed":"1.0","deprecated":true,
+      "deprecation_reason":"discontinued","deprecation_date":"2026-01-01",
+      "deprecation_replacement_cask":"transitional-app",
+      "disabled":true,"disable_date":"2026-09-01","disable_reason":"discontinued",
+      "disable_replacement_cask":"new-app"}]}
+    """#))
+    let items = InventoryMerger.merge(list: list, info: info)
+    let cask = try #require(items.first { $0.name == "old-app" })
+    #expect(cask.isDisabled == true)
+    #expect(cask.disabledReason == "discontinued")
+    #expect(cask.disableDate == "2026-09-01")
+    // Homebrew precedence: the disable pair wins while disabled — the deprecation
+    // replacement is intentionally dropped (DeprecateDisable.message).
+    #expect(cask.replacementCask == "new-app")
+    #expect(cask.replacementFormula == nil)
+    let notice = try #require(DeprecationNotice(cask))
+    #expect(notice.status == .disabled)
+    #expect(notice.text == "This cask has been disabled since 2026-09-01 because it is discontinued upstream.")
+    #expect(notice.replacementCommand == "brew install --cask new-app")
+}
+
 @Test func merger_sortedByName() throws {
     let list = try ListSnapshot.decode(json(#"""
     {"formulae":[{"name":"Zeta","versions":["1.0"]},{"name":"alpha","versions":["2.0"]},

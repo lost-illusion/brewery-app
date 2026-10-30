@@ -18,6 +18,12 @@ public struct InfoSnapshot: Decodable {
         public let deprecationReason: String?
         public let disabled: Bool
         public let disabledReason: String?
+        public let deprecationDate: String?
+        public let disableDate: String?
+        public let deprecationReplacementFormula: String?
+        public let deprecationReplacementCask: String?
+        public let disableReplacementFormula: String?
+        public let disableReplacementCask: String?
         public let kegOnly: Bool
         public let desc: String?
         public let homepage: String?
@@ -42,6 +48,12 @@ public struct InfoSnapshot: Decodable {
             case deprecationReason = "deprecation_reason"
             case disabled
             case disabledReason = "disable_reason"
+            case deprecationDate = "deprecation_date"
+            case disableDate = "disable_date"
+            case deprecationReplacementFormula = "deprecation_replacement_formula"
+            case deprecationReplacementCask = "deprecation_replacement_cask"
+            case disableReplacementFormula = "disable_replacement_formula"
+            case disableReplacementCask = "disable_replacement_cask"
             case kegOnly = "keg_only"
             case versions, bottle
         }
@@ -59,6 +71,12 @@ public struct InfoSnapshot: Decodable {
             deprecationReason = try c.decodeIfPresent(String.self, forKey: .deprecationReason)
             disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
             disabledReason = try c.decodeIfPresent(String.self, forKey: .disabledReason)
+            deprecationDate = try c.decodeIfPresent(String.self, forKey: .deprecationDate)
+            disableDate = try c.decodeIfPresent(String.self, forKey: .disableDate)
+            deprecationReplacementFormula = try c.decodeIfPresent(String.self, forKey: .deprecationReplacementFormula)
+            deprecationReplacementCask = try c.decodeIfPresent(String.self, forKey: .deprecationReplacementCask)
+            disableReplacementFormula = try c.decodeIfPresent(String.self, forKey: .disableReplacementFormula)
+            disableReplacementCask = try c.decodeIfPresent(String.self, forKey: .disableReplacementCask)
             kegOnly = try c.decodeIfPresent(Bool.self, forKey: .kegOnly) ?? false
             desc = try c.decodeIfPresent(String.self, forKey: .desc)
             homepage = try c.decodeIfPresent(String.self, forKey: .homepage)
@@ -76,6 +94,14 @@ public struct InfoSnapshot: Decodable {
         public let pinned: Bool
         public let deprecated: Bool
         public let deprecationReason: String?
+        public let disabled: Bool
+        public let disabledReason: String?
+        public let deprecationDate: String?
+        public let disableDate: String?
+        public let deprecationReplacementFormula: String?
+        public let deprecationReplacementCask: String?
+        public let disableReplacementFormula: String?
+        public let disableReplacementCask: String?
         public let autoUpdates: Bool
         public let versionLatest: String? // `version` field
         public let desc: String?
@@ -86,6 +112,14 @@ public struct InfoSnapshot: Decodable {
             case token, installed, outdated, pinned, deprecated, desc, homepage, tap
             case installedTime = "installed_time"
             case deprecationReason = "deprecation_reason"
+            case disabled
+            case disabledReason = "disable_reason"
+            case deprecationDate = "deprecation_date"
+            case disableDate = "disable_date"
+            case deprecationReplacementFormula = "deprecation_replacement_formula"
+            case deprecationReplacementCask = "deprecation_replacement_cask"
+            case disableReplacementFormula = "disable_replacement_formula"
+            case disableReplacementCask = "disable_replacement_cask"
             case autoUpdates = "auto_updates"
             case versionLatest = "version"
         }
@@ -100,6 +134,14 @@ public struct InfoSnapshot: Decodable {
             pinned = try c.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
             deprecated = try c.decodeIfPresent(Bool.self, forKey: .deprecated) ?? false
             deprecationReason = try c.decodeIfPresent(String.self, forKey: .deprecationReason)
+            disabled = try c.decodeIfPresent(Bool.self, forKey: .disabled) ?? false
+            disabledReason = try c.decodeIfPresent(String.self, forKey: .disabledReason)
+            deprecationDate = try c.decodeIfPresent(String.self, forKey: .deprecationDate)
+            disableDate = try c.decodeIfPresent(String.self, forKey: .disableDate)
+            deprecationReplacementFormula = try c.decodeIfPresent(String.self, forKey: .deprecationReplacementFormula)
+            deprecationReplacementCask = try c.decodeIfPresent(String.self, forKey: .deprecationReplacementCask)
+            disableReplacementFormula = try c.decodeIfPresent(String.self, forKey: .disableReplacementFormula)
+            disableReplacementCask = try c.decodeIfPresent(String.self, forKey: .disableReplacementCask)
             autoUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoUpdates) ?? false
             versionLatest = try c.decodeIfPresent(String.self, forKey: .versionLatest)
             desc = try c.decodeIfPresent(String.self, forKey: .desc)
