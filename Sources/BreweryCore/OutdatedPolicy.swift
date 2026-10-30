@@ -2,13 +2,19 @@ import Foundation
 
 private let latestMarker = ":latest"
 
-/// Newest version known from the API manifest for this item, or nil on a
-/// manifest miss (tap packages are absent from the core-only manifest).
-public func latestVersion(for item: BrewItem, manifest: PackageManifest?) -> String? {
+private func manifestLatest(for item: BrewItem, manifest: PackageManifest?) -> String? {
     switch item.kind {
     case .formula: return manifest?.latestFormulaVersion(item.name)
     case .cask:    return manifest?.latestCaskVersion(item.name)
     }
+}
+
+/// Newest version known from the API manifest for this item. Tap packages are
+/// absent from the core-only manifest, so a miss falls back to the version
+/// brew's installed-info reports for the definition itself (§22) — still nil
+/// when neither source knows (list-only rows).
+public func latestVersion(for item: BrewItem, manifest: PackageManifest?) -> String? {
+    manifestLatest(for: item, manifest: manifest) ?? item.infoVersion
 }
 
 /// Brew-default outdated semantics: self-updating casks (auto_updates, or a
@@ -17,19 +23,20 @@ public func latestVersion(for item: BrewItem, manifest: PackageManifest?) -> Str
 /// A manifest miss is .unknown, never .upToDate.
 public func outdatedState(item: BrewItem, manifest: PackageManifest?, greedy: Bool) -> OutdatedState {
     let installedActive = item.linkedVersion ?? item.installedVersions.last
+    let manifestHit = manifestLatest(for: item, manifest: manifest)
+    let latestKnown = manifestHit ?? item.infoVersion
 
     if item.kind == .cask {
-        let manifestLatest = manifest?.latestCaskVersion(item.name)
         let selfUpdating = item.autoUpdates
             || item.installedVersions.contains(latestMarker)
-            || manifestLatest == latestMarker
+            || latestKnown == latestMarker
         if selfUpdating {
             guard greedy else { return .upToDate }
-            return .selfUpdating(latestKnown: manifestLatest == latestMarker ? installedActive : manifestLatest)
+            return .selfUpdating(latestKnown: latestKnown == latestMarker ? installedActive : latestKnown)
         }
     }
 
-    guard let latest = latestVersion(for: item, manifest: manifest), latest != latestMarker else {
+    guard let latest = latestKnown, latest != latestMarker else {
         return .unknown
     }
     guard let installed = installedActive else { return .unknown }
@@ -37,6 +44,14 @@ public func outdatedState(item: BrewItem, manifest: PackageManifest?, greedy: Bo
         // installed newer than known latest (API regeneration lag, tap shadowing
         // a core name): brew says up to date — never arrow to an older version.
         return .upToDate
+    }
+    // Manifest miss (tap package): brew's `outdated` boolean is the authority
+    // (§22) — a pure version compare against the tap definition the GUI cannot
+    // read (`outdated = installed && formula.outdated?` in cmd/info.rb; pinned
+    // does not suppress it). Self-updating casks already returned above under
+    // the greedy flag.
+    if manifestHit == nil, let brewOutdated = item.infoOutdated {
+        return brewOutdated ? .updateAvailable(latest: latest) : .upToDate
     }
     return .updateAvailable(latest: latest)
 }

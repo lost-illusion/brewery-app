@@ -40,6 +40,8 @@ private func realSnapshots() throws -> (ListSnapshot, InfoSnapshot) {
     let ralphex = try #require(items.first { $0.name == "ralphex" }) // in list, omitted by info — §43
     #expect(ralphex.sourceState == .listOnly(reason: "no source info — untrusted tap or API skew"))
     #expect(ralphex.latestVersion == nil)
+    #expect(ralphex.infoOutdated == nil) // no info JSON → no brew verdict, stays .unknown
+    #expect(ralphex.infoVersion == nil)
     #expect(ralphex.desc == nil)
     #expect(ralphex.installedVersions == ["1.0.1"]) // versions survive from list
 }
@@ -56,6 +58,28 @@ private func realSnapshots() throws -> (ListSnapshot, InfoSnapshot) {
     let ghost = try #require(items.first { $0.name == "ghostpkg" })
     #expect(ghost.sourceState == .infoOnly)
     #expect(ghost.installedVersions == ["1.0"]) // versions fall back to info.installed
+    #expect(ghost.infoOutdated == true)         // brew's own verdict rides along (§22)
+    #expect(ghost.infoVersion == nil)           // fixture has no versions.stable
+}
+
+@Test func merger_tapCaskCarriesBrewOutdatedAndVersion() throws {
+    // Live JSON shape 2026-10-30: agterm installed 0.38.1, tap definition at
+    // 0.39.1 — info.outdated true, cask `version` 0.39.1. The merger must hand
+    // both to the policy so the main inventory arrows to 0.39.1.
+    let list = try ListSnapshot.decode(json(#"{"formulae":[],"casks":[{"token":"agterm","versions":["0.38.1"]}]}"#))
+    let info = try InfoSnapshot.decode(json(#"""
+    {"formulae":[],"casks":[{"token":"agterm","installed":"0.38.1","installed_time":1761749040,
+      "outdated":true,"pinned":false,"deprecated":false,"disabled":false,"auto_updates":false,
+      "version":"0.39.1","tap":"umputun/apps","homepage":"https://github.com/umputun/agterm",
+      "depends_on":{"formula":["gnupg"]}}]}
+    """#))
+    let item = try #require(InventoryMerger.merge(list: list, info: info).first { $0.name == "agterm" })
+    #expect(item.infoOutdated == true)
+    #expect(item.infoVersion == "0.39.1")
+    #expect(item.latestVersion == nil) // merger leaves it; applyPolicy computes it
+    let state = outdatedState(item: item, manifest: nil, greedy: false) // no manifest entry: tap cask
+    #expect(state == .updateAvailable(latest: "0.39.1"))
+    #expect(latestVersion(for: item, manifest: nil) == "0.39.1") // "Latest known" fact line
 }
 
 @Test func merger_caskDisabledPropagates() throws {

@@ -5,7 +5,7 @@ import Testing
 private func item(_ id: String, _ name: String, kind: BrewItem.Kind = .formula, tap: String?) -> BrewItem {
     BrewItem(id: id, kind: kind, name: name, fullName: id, tap: tap,
              installedVersions: ["1.0"], linkedVersion: "1.0", optlinkedVersion: nil, pinnedVersion: nil,
-             latestVersion: nil, outdated: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
+             latestVersion: nil, outdated: nil, infoOutdated: nil, infoVersion: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
              isDisabled: false, disabledReason: nil, deprecationDate: nil, disableDate: nil,
              replacementFormula: nil, replacementCask: nil, desc: nil, homepage: nil, installedAt: nil,
              kegOnly: false, autoUpdates: false, dependencies: [], sourceState: .complete)

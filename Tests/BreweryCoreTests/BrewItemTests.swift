@@ -6,7 +6,7 @@ import Testing
     let item = BrewItem(
         id: "ace", kind: .formula, name: "ace", fullName: "ace", tap: "homebrew/core",
         installedVersions: ["8.0.8"], linkedVersion: nil, optlinkedVersion: nil, pinnedVersion: nil,
-        latestVersion: nil, outdated: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
+        latestVersion: nil, outdated: nil, infoOutdated: nil, infoVersion: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
         isDisabled: false, disabledReason: nil, deprecationDate: nil, disableDate: nil,
         replacementFormula: nil, replacementCask: nil, desc: nil, homepage: nil, installedAt: nil,
         kegOnly: false, autoUpdates: false, dependencies: [], sourceState: .complete

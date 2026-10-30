@@ -8,7 +8,7 @@ private func item(_ kind: BrewItem.Kind = .formula,
                   repFormula: String? = nil, repCask: String? = nil) -> BrewItem {
     BrewItem(id: "x", kind: kind, name: "x", fullName: "homebrew/core/x", tap: "homebrew/core",
              installedVersions: ["1.0"], linkedVersion: nil, optlinkedVersion: nil, pinnedVersion: nil,
-             latestVersion: nil, outdated: nil, isPinned: false,
+             latestVersion: nil, outdated: nil, infoOutdated: nil, infoVersion: nil, isPinned: false,
              isDeprecated: deprecated, deprecationReason: deprecationReason,
              isDisabled: disabled, disabledReason: disabledReason,
              deprecationDate: deprecationDate, disableDate: disableDate,

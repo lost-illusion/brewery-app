@@ -22,6 +22,14 @@ public struct BrewItem: Identifiable, Hashable, Codable {
     public let pinnedVersion: String?
     public var latestVersion: String? // filled by Task 8 logic
     public var outdated: OutdatedState? // filled by Task 8 logic
+    /// `outdated` boolean from `brew info --json=v2 --installed` — brew's own
+    /// verdict, the outdated authority for tap packages (§22). nil when no info
+    /// JSON backs the row (list-only rows, §43).
+    public let infoOutdated: Bool?
+    /// The version brew's own definition reports — `versions.stable` (formula)
+    /// or `version` (cask) — live-verified latest-known even while installed
+    /// versions lag (awscli stable 2.39.2 vs installed 2.39.1). nil without info.
+    public let infoVersion: String?
     public let isPinned: Bool
     public let isDeprecated: Bool
     public let deprecationReason: String?

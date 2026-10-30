@@ -42,7 +42,7 @@ private func item(_ name: String, kind: BrewItem.Kind = .formula, tap: String? =
                   homepage: String? = nil) -> BrewItem {
     BrewItem(id: name, kind: kind, name: name, fullName: name, tap: tap,
              installedVersions: ["1.0"], linkedVersion: "1.0", optlinkedVersion: nil, pinnedVersion: nil,
-             latestVersion: nil, outdated: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
+             latestVersion: nil, outdated: nil, infoOutdated: nil, infoVersion: nil, isPinned: false, isDeprecated: false, deprecationReason: nil,
              isDisabled: false, disabledReason: nil, deprecationDate: nil, disableDate: nil,
              replacementFormula: nil, replacementCask: nil, desc: nil, homepage: homepage, installedAt: nil,
              kegOnly: false, autoUpdates: false, dependencies: [], sourceState: .complete)
