@@ -217,6 +217,20 @@ Verified present in `brew commands` but out of scope for brewery (they operate o
 - Cask `depends_on` shape observed live on 7.0.11: mixed hash — `agterm` → `{"arch":[{"type":"arm","bits":64}],"macos":{">=":["14"]}}`, `revmux` → `{}`, `wireshark-app` → `{"macos":{}}`; name arrays `formula`/`cask` per `cask/dsl/depends_on.rb` keys — no locally installed cask declares one, so the name-array decode is fixture-verified only (UNVERIFIED live). `arch`/`macos`/`maximum_macos` are requirement objects, not packages — decode must skip them.
 - Gotchas: direct dependents only (`brew uses --recursive` is transitive — not implemented); dep strings resolve id-first then bare-name fallback exactly like the forward chips, so a cask token colliding with a formula name wins the same way; dependents are inventory members only (uninstalled dependents have no data source); `uses_from_macos` deps appear in neither `dependencies` nor the reverse index (macOS-provided, not an installed package).
 
+### 21. Changelog / version history (detail page) (verified 2026-10-30)
+
+- GUI feature: per-package "Version history" timeline + "Release notes" link on the detail page.
+- **brew itself has no changelog**: `brew commands` has nothing matching change/news/log/history; info JSON has no changelog field; formulae.brew.sh has no commits endpoint (`/api/formula/wget/commits.json` → 404). All history data must come from GitHub, not from `brew`.
+- **Core formulae/casks — GitHub REST commits-by-path** (verified live, machine-readable JSON):
+  - formula: `https://api.github.com/repos/Homebrew/homebrew-core/commits?path=Formula/w/wget.rb&per_page=N`
+  - cask: `…/repos/Homebrew/homebrew-cask/commits?path=Casks/w/wireshark-app.rb`
+  - Path requires the letter subdir (`Formula/a/ace.rb`, `Casks/w/wacom-inkspace.rb`); a `Formulae/` prefix 404s. Commit subjects: version bump = bare `ace 8.0.8` / `wireshark-app 4.6.9`; everything else is prefixed `name: …` (bottle rebuilds like `ace: update 8.0.8 bottle.`, dep migrations) — filter `^<name> <version>` to show only version bumps, or render all as a packaging timeline.
+  - Gotchas: unauthenticated GitHub REST = 60 req/h/IP — a GUI needs a user token (brew itself honors `HOMEBREW_GITHUB_API_TOKEN`) or an on-disk cache with ETags; this is *Homebrew packaging* history, not the upstream software's changelog; removed formulae (past the disable window) still have full commit history in the repo — usable for installed-but-removed packages that `info` no longer reports.
+- **Tap packages — local git** (verified on `umputun/apps`): resolve the tap path from `brew tap-info --installed --json` (`select(.installed) | .path`; virtual taps have `installed: false` and a phantom path), then `git -C <path> log --pretty=… -- Formulae`. Subjects are tap-author style ("agterm 0.38.1", "Brew formula update for reproxy version v1.7.2") — render verbatim; no message-format guarantee across third-party taps.
+- **Upstream release notes — best-effort**: GitHub releases API `repos/{owner}/{repo}/releases?per_page=N`, deriving `{owner}/{repo}` from `homepage` / `urls.stable.url` / `urls.head.url` matching `github.com/{owner}/{repo}`. Coverage is uneven (aws-cli's releases list contains a stray 2018 `2.0.0dev0`; its real changelog is in-repo `CHANGELOG.rst`); non-GitHub upstreams (wget → GNU) have no structured source — GUI fallback is a homepage link. Homebrew's own changelog: `repos/Homebrew/brew/releases`.
+- **livecheck is neither a changelog nor usable in API mode here**: `brew livecheck --json ace awscli mariadb@10.5` → "These formulae are not in any locally installed taps!" even though all are installed (casks same); on an untrusted tap it refuses earlier ("Refusing to load formula umputun/apps/ralphex from untrusted tap" — needs `brew trust`). First invocation also bundle-installs gems (patchelf, ruby-macho, …) — slow, and touches brew's gem bundle. Newer-version detection already comes from the manifest (§env snapshot); livecheck adds nothing for the GUI unless core/cask taps get cloned.
+- gist-logs / `~/Library/Logs/Homebrew` are build logs only (empty for bottled installs) — not a changelog source.
+
 ## Key HOMEBREW_* variables for the GUI (all from manpage ENVIRONMENT section)
 
 Determinism/query hygiene: `HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_AUTO_UPDATE_SECS` (86400), `HOMEBREW_API_AUTO_UPDATE_SECS` (450), `HOMEBREW_AUTO_UPDATE_QUIET`, `HOMEBREW_NO_UPDATE_REPORT_NEW`, `HOMEBREW_NO_ENV_HINTS`, `HOMEBREW_NO_ANALYTICS`, `HOMEBREW_NO_COLOR`, `HOMEBREW_VERBOSE`, `HOMEBREW_DEBUG`, `HOMEBREW_DEVELOPER`, `HOMEBREW_NO_BOOTSNAP` (if the GUI invokes brew very frequently, Bootsnap cache is the recommended speed-up), `HOMEBREW_LOCK_CONTEXT`.
@@ -251,6 +265,7 @@ Live and used: `/Manpage` (now also hosts the full ENVIRONMENT section), `/Query
 - **`brew cask`, `--purge`, `HOMEBREW_NO_BOTTLE`, `brew commands --json`, `deps --json` are removed** — legacy recipes/blogs describe them; a 7.x GUI must not. Same for `brew bundle restore` (absent from 7.0.11's verified subcommand list) and `brew bottle`'s legacy `--all`/`--tap` flags.
 - **`brew update-if-needed` behavior is undocumented/unverifiable from the CLI** (silent, no usage output) — the GUI's "refresh" action should use plain `brew update`.
 - **Brewfile has no JSON**: `bundle list` is plain text; parsing/diffing Brewfiles is GUI-side work.
+- **No changelog/news in brew** — no command, no JSON field, no formulae.brew.sh endpoint; version history requires GitHub (commits-by-path for core, releases API for upstream notes) or local tap git. See §21.
 
 ## Sources
 
