@@ -11,6 +11,7 @@ let package = Package(
     targets: [
         .target(name: "BreweryCore"),
         .executableTarget(name: "BreweryApp", dependencies: ["BreweryCore"]),
-        .testTarget(name: "BreweryCoreTests", dependencies: ["BreweryCore"]),
+        .testTarget(name: "BreweryCoreTests", dependencies: ["BreweryCore"],
+                    exclude: ["Fixtures"]),
     ]
 )

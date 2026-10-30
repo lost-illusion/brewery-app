@@ -49,6 +49,7 @@ public final class InventoryModel {
     public private(set) var state: ViewState = .idle
     public private(set) var inventoryUpdated: Date?
     public private(set) var versionDataAsOf: Date?
+    public private(set) var manifestBottleTag: String? // the bottle tag the manifest was fetched for
     public var settings: InventorySettings
 
     private let runner: CommandRunning
@@ -59,6 +60,7 @@ public final class InventoryModel {
 
     private var refreshTask: Task<Void, Never>?
     private var lastFailure: Date?
+    private var lastManifest: PackageManifest?
     private static let failureBackoff: TimeInterval = 60
 
     public init(runner: CommandRunning, manifestFetcher: ManifestFetching, store: SnapshotStore,
@@ -135,6 +137,8 @@ public final class InventoryModel {
             } else {
                 versionDataAsOf = nil // no info → no bottleTag → manifest step skipped
             }
+            lastManifest = manifest
+            manifestBottleTag = manifest != nil ? bottleTag : nil
             applyPolicy(to: &merged, manifest: manifest)
 
             items = merged
@@ -147,6 +151,15 @@ public final class InventoryModel {
         } catch {
             fail(message: "brew command failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Recompute badges after a settings change (greedy toggle) using the
+    /// last fetched manifest — no brew commands re-run.
+    public func settingsChanged() {
+        guard !items.isEmpty else { return }
+        var current = items
+        applyPolicy(to: &current, manifest: lastManifest)
+        items = current
     }
 
     private func applyPolicy(to merged: inout [BrewItem], manifest: PackageManifest?) {
