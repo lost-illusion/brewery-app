@@ -5,6 +5,7 @@ import SwiftUI
 struct PackageDetail: View {
     let item: BrewItem?
     let allItems: [BrewItem]
+    let model: InventoryModel
     let bottleTag: String?
     let openPackage: (String) -> Void
 
@@ -13,6 +14,15 @@ struct PackageDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(item)
+                    if case .failed(let message) = model.upgrade {
+                        Label(message, systemImage: "exclamationmark.octagon.fill")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.red.opacity(0.12))
+                            .textSelection(.enabled)
+                    }
                     if let notice = DeprecationNotice(item) {
                         DeprecationBanner(notice: notice)
                     }
@@ -128,7 +138,36 @@ struct PackageDetail: View {
             HStack(spacing: 6) {
                 Text(item.kind == .formula ? "Formula" : "Cask").font(.callout)
                 outdatedBadge(item)
+                Spacer()
+                updateButton(item)
             }
+        }
+    }
+
+    /// Only outdated pages get an Update action; the badge row stays uncluttered
+    /// for up-to-date/unknown packages. .selfUpdating only surfaces under the
+    /// greedy setting, and the model adds --greedy to the command for it (§70).
+    @ViewBuilder private func updateButton(_ item: BrewItem) -> some View {
+        switch item.outdated {
+        case .updateAvailable, .selfUpdating:
+            Button {
+                Task { await model.upgrade(item) }
+            } label: {
+                Label("Update", systemImage: "arrow.down.circle")
+                    .opacity(model.upgrade == .idle ? 1 : 0)
+                    .overlay {
+                        if model.upgrade != .idle {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(item.isPinned || model.state == .loading || model.upgrade != .idle)
+            .help(item.isPinned
+                  ? "pinned — brew upgrade skips pinned packages"
+                  : "brew update, then brew upgrade \(item.name)")
+        default:
+            EmptyView()
         }
     }
 

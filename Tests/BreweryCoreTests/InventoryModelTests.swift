@@ -218,6 +218,89 @@ private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
     #expect(ace.sourceState == .complete) // info merged in after the gate
 }
 
+// MARK: - Upgrade actions
+
+@MainActor
+@Test func model_upgradeAll_runsUpdateThenUpgradeThenRefresh() async throws {
+    let h = try makeHarness(extraResults: [
+        "update": ok(Data("Already up-to-date.\n".utf8)),
+        "upgrade -y": ok(Data("Upgraded.\n".utf8)),
+    ])
+    await h.model.upgradeAll()
+    #expect(h.model.upgrade == .idle)
+    #expect(h.model.state == .ready) // badges refreshed after a successful upgrade
+    #expect(h.runner.calls.first == ["update"]) // explicit update: brew upgrade consults brew's own cache
+    #expect(h.runner.calls.contains(["upgrade", "-y"])) // -y: brew's ask mode would hang the GUI (§77)
+    let listCalls = h.runner.calls.filter { $0.first == "list" }
+    #expect(listCalls.count == 1) // the post-upgrade re-read (no pre-upgrade refresh in this test)
+    #expect(h.runner.calls.last?.first == "info")
+}
+
+@MainActor
+@Test func model_upgradeAllGreedyAddsGreedyFlag() async throws {
+    let h = try makeHarness(extraResults: [
+        "update": ok(Data()),
+        "upgrade -y --greedy": ok(Data()),
+    ])
+    h.model.settings.greedyOutdated = true
+    await h.model.upgradeAll()
+    #expect(h.runner.calls.contains(["upgrade", "-y", "--greedy"])) // greedy list ⇒ greedy command (§70)
+    #expect(!h.runner.calls.contains(["upgrade", "-y"]))
+    #expect(h.model.upgrade == .idle)
+}
+
+@MainActor
+@Test func model_upgradeSingleTargetsFullName() async throws {
+    let h = try makeHarness(extraResults: [
+        "update": ok(Data()),
+        "upgrade -y ace": ok(Data()),
+    ])
+    await h.model.refresh(reason: .manual)
+    let ace = try #require(h.model.items.first { $0.name == "ace" })
+    await h.model.upgrade(ace)
+    #expect(h.runner.calls.contains(["upgrade", "-y", "ace"]))
+    #expect(h.model.upgrade == .idle)
+}
+
+@MainActor
+@Test func model_upgradeSelfUpdatingCaskAddsGreedy() async throws {
+    // wireshark-app has auto_updates true: only --greedy makes brew touch it (§70).
+    let h = try makeHarness(extraResults: [
+        "update": ok(Data()),
+        "upgrade -y --greedy wireshark-app": ok(Data()),
+    ])
+    h.model.settings.greedyOutdated = true
+    await h.model.refresh(reason: .manual)
+    let wireshark = try #require(h.model.items.first { $0.name == "wireshark-app" })
+    #expect(wireshark.outdated == .selfUpdating(latestKnown: "4.6.9"))
+    await h.model.upgrade(wireshark)
+    #expect(h.runner.calls.contains(["upgrade", "-y", "--greedy", "wireshark-app"]))
+}
+
+@MainActor
+@Test func model_upgradeUpdateStepFailureStopsBeforeUpgrade() async throws {
+    let broken = BrewResult(exitCode: 1, stdout: Data(), stderr: Data("Error: pull failed".utf8))
+    let h = try makeHarness(extraResults: ["update": broken])
+    await h.model.upgradeAll()
+    switch h.model.upgrade {
+    case .failed(let message): #expect(message.contains("pull failed"))
+    default: Issue.record("expected .failed, got \(h.model.upgrade)")
+    }
+    #expect(h.runner.calls == [["update"]]) // no upgrade attempted after a failed brew update
+    #expect(h.model.state == .idle) // upgrade failure is not a refresh failure
+}
+
+@MainActor
+@Test func model_upgradeRefusedWhileExternalBrewRunning() async throws {
+    let h = try makeHarness(probeRunning: true)
+    await h.model.upgradeAll()
+    switch h.model.upgrade {
+    case .failed(let message): #expect(message.contains("brew is busy"))
+    default: Issue.record("expected .failed, got \(h.model.upgrade)")
+    }
+    #expect(h.runner.calls.isEmpty) // never contend with a brew we did not start
+}
+
 @Test func store_roundTripSaveLoad() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let store = SnapshotStore(directory: dir)

@@ -8,10 +8,17 @@ struct PackageList: View {
     let model: InventoryModel
     let jqAvailable: Bool
     @Binding var history: NavigationHistory
+    @State private var confirmUpdateAll = false
 
     private var filtered: [BrewItem] {
         items(model.items, in: section, query: query.isEmpty ? nil : query,
               greedy: model.settings.greedyOutdated)
+    }
+
+    /// "Update All" acts on everything brew considers outdated, not the
+    /// query-filtered view — so the confirmation count must ignore the query.
+    private var outdatedTotal: Int {
+        items(model.items, in: .outdated, query: nil, greedy: model.settings.greedyOutdated).count
     }
 
     var body: some View {
@@ -20,6 +27,16 @@ struct PackageList: View {
             content
         }
         .searchable(text: $query, prompt: "Filter name or description")
+        .alert("Update all outdated packages?", isPresented: $confirmUpdateAll, presenting: outdatedTotal) { count in
+            Button("Update \(count)") { Task { await model.upgradeAll() } }
+            Button("Cancel", role: .cancel) { }
+        } message: { count in
+            // brew's outdated set can be wider than the GUI one (tap packages
+            // show "—" here but brew still upgrades them) — say so before mutating.
+            Text("""
+                Runs brew update, then brew upgrade. Upgrades everything brew considers outdated (\(count) shown here; tap packages are included even when their version shows as “—”). Pinned packages are skipped; running cask apps may be quit.
+                """)
+        }
         .toolbar {
             // Detail-page history sits left of Refresh in the same trailing
             // cluster; write-back to selectedID is no-op in the history
@@ -48,7 +65,8 @@ struct PackageList: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 // Manual refresh: re-runs list+info now; the manifest follows its
-                // 24 h cache (the app never runs `brew update` — design §Freshness).
+                // 24 h cache (refresh never runs `brew update` — design §Freshness;
+                // only the Outdated section's Update All does).
                 // The label lays out in both states (opacity 0, not removed) so the
                 // toolbar slot keeps a fixed size while the spinner replaces it.
                 Button {
@@ -64,10 +82,42 @@ struct PackageList: View {
                 }
                 .disabled(model.state == .loading)
             }
+            if section == .outdated {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { confirmUpdateAll = true } label: {
+                        Label("Update All", systemImage: "arrow.down.circle")
+                            .opacity(model.upgrade == .idle ? 1 : 0)
+                            .overlay {
+                                if model.upgrade != .idle {
+                                    ProgressView().controlSize(.small)
+                                }
+                            }
+                    }
+                    .disabled(model.state == .loading || model.upgrade != .idle || outdatedTotal == 0)
+                    .help("brew update, then brew upgrade for everything outdated")
+                }
+            }
         }
     }
 
     @ViewBuilder private var banners: some View {
+        switch model.upgrade {
+        case .running(let phase):
+            Label(phase == .updatingHomebrew ? "Updating Homebrew…" : "Upgrading packages…",
+                  systemImage: "arrow.down.circle")
+                .foregroundStyle(.tint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.accentColor.opacity(0.12))
+        case .failed(let message):
+            Label(message, systemImage: "exclamationmark.octagon.fill")
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(.red.opacity(0.12))
+        case .idle:
+            EmptyView()
+        }
         if case .failed(let message) = model.state {
             Label(message, systemImage: "exclamationmark.octagon.fill")
                 .foregroundStyle(.red)

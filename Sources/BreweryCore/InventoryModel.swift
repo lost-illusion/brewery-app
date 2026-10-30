@@ -40,6 +40,13 @@ public protocol ManifestFetching: Sendable {
 
 extension ManifestFetcher: ManifestFetching {}
 
+/// Which brew step an upgrade is running right now (drives the UI progress label).
+public enum UpgradePhase: Equatable { case updatingHomebrew, upgradingPackages }
+
+/// Upgrade-action state, separate from ViewState so an upgrade failure never
+/// masquerades as a refresh failure (and vice versa).
+public enum UpgradeState: Equatable { case idle, running(phase: UpgradePhase), failed(message: String) }
+
 @MainActor
 @Observable
 public final class InventoryModel {
@@ -47,6 +54,7 @@ public final class InventoryModel {
 
     public private(set) var items: [BrewItem] = []
     public private(set) var state: ViewState = .idle
+    public private(set) var upgrade: UpgradeState = .idle
     public private(set) var inventoryUpdated: Date?
     public private(set) var versionDataAsOf: Date?
     public private(set) var manifestBottleTag: String? // the bottle tag the manifest was fetched for
@@ -59,6 +67,7 @@ public final class InventoryModel {
     private let jqAvailable: Bool
 
     private var refreshTask: Task<Void, Never>?
+    private var upgradeTask: Task<Void, Never>?
     private var lastFailure: Date?
     private var lastManifest: PackageManifest?
     private static let failureBackoff: TimeInterval = 60
@@ -162,6 +171,71 @@ public final class InventoryModel {
         } catch {
             fail(message: "brew command failed: \(error.localizedDescription)")
         }
+    }
+
+    /// Outdated-section "Update All": `brew update`, then `brew upgrade` with
+    /// no package args — brew picks exactly the same outdated set its own CLI
+    /// would (pinned skipped, deprecated warned, disabled failed; compat §70).
+    public func upgradeAll() async {
+        await runUpgrade(scope: .all)
+    }
+
+    /// Detail-page per-package upgrade. --greedy is added for a .selfUpdating
+    /// item, the only way brew will touch a :latest/auto_updates cask (§70).
+    public func upgrade(_ item: BrewItem) async {
+        await runUpgrade(scope: .single(item))
+    }
+
+    private enum UpgradeScope { case all, single(BrewItem) }
+
+    private func runUpgrade(scope: UpgradeScope) async {
+        if let existing = upgradeTask { await existing.value; return } // single flight
+        if let refresh = refreshTask { await refresh.value } // never two brews fighting our own
+        let task = Task { await self.performUpgrade(scope: scope) }
+        upgradeTask = task
+        await task.value
+        upgradeTask = nil
+    }
+
+    private func performUpgrade(scope: UpgradeScope) async {
+        if brewProbe.isBrewRunningExternally() {
+            upgrade = .failed(message: "brew is busy (another brew process is running) — wait for it, then retry")
+            return
+        }
+        do {
+            // Explicit `brew update` first: brew upgrade consults brew's own API
+            // cache, and the runner's HOMEBREW_NO_AUTO_UPDATE suppresses the
+            // implicit update — without this step upgrade can lag the manifest
+            // the badges were computed from, and say "already up-to-date".
+            upgrade = .running(phase: .updatingHomebrew)
+            let updateRes = try await runner.run(["update"])
+            guard updateRes.exitCode == 0 else { failUpgrade(result: updateRes); return }
+
+            upgrade = .running(phase: .upgradingPackages)
+            // -y: ask mode is brew's default and a TTY prompt would hang the GUI (§77);
+            // the app runs its own confirmation instead.
+            var args: [String] = ["upgrade", "-y"]
+            switch scope {
+            case .all:
+                if settings.greedyOutdated { args.append("--greedy") }
+            case .single(let item):
+                if case .selfUpdating = item.outdated { args.append("--greedy") }
+                args.append(item.fullName)
+            }
+            let upgradeRes = try await runner.run(args)
+            guard upgradeRes.exitCode == 0 else { failUpgrade(result: upgradeRes); return }
+
+            upgrade = .idle
+            // Badges must reflect the new reality: re-read inventory and force
+            // the manifest past its 24 h cache.
+            await performRefresh(forceManifest: true)
+        } catch {
+            upgrade = .failed(message: "brew command failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func failUpgrade(result: BrewResult) {
+        upgrade = .failed(message: failureMessage(for: result))
     }
 
     /// Recompute badges after a settings change (greedy toggle) using the

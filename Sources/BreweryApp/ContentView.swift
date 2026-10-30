@@ -26,6 +26,7 @@ struct ContentView: View {
         } detail: {
             PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
                           allItems: app.model.items,
+                          model: app.model,
                           bottleTag: app.model.manifestBottleTag,
                           openPackage: { id in selectedID = id })
         }
