@@ -107,8 +107,20 @@ public struct InfoSnapshot: Decodable {
         public let desc: String?
         public let homepage: String?
         public let tap: String
+        public let dependsFormula: [String] // depends_on.formula — casks can pin formulae
+        public let dependsCask: [String]    // depends_on.cask
+
+        /// `depends_on` is a mixed hash: `formula`/`cask` are string arrays,
+        /// while `arch`/`macos`/`maximum_macos` are requirement objects (§45
+        /// observed `{"arch":[{"type":"arm","bits":64}],"macos":{">=":["14"]}}`).
+        /// Only the package-name keys are decoded; JSONDecoder ignores the rest.
+        private struct DependsOnDTO: Decodable {
+            let formula: [String]?
+            let cask: [String]?
+        }
 
         enum CodingKeys: String, CodingKey {
+            case dependsOn = "depends_on"
             case token, installed, outdated, pinned, deprecated, desc, homepage, tap
             case installedTime = "installed_time"
             case deprecationReason = "deprecation_reason"
@@ -147,6 +159,9 @@ public struct InfoSnapshot: Decodable {
             desc = try c.decodeIfPresent(String.self, forKey: .desc)
             homepage = try c.decodeIfPresent(String.self, forKey: .homepage)
             tap = try c.decodeIfPresent(String.self, forKey: .tap) ?? ""
+            let dependsOn = try c.decodeIfPresent(DependsOnDTO.self, forKey: .dependsOn)
+            dependsFormula = dependsOn?.formula ?? []
+            dependsCask = dependsOn?.cask ?? []
         }
     }
 

@@ -37,6 +37,16 @@ struct PackageDetail: View {
                             }
                         }
                     }
+                    let usedBy = ReverseDependencies(items: allItems).dependents(of: item)
+                    if !usedBy.isEmpty {
+                        GroupBox("Used by (\(usedBy.count))") {
+                            FlowLayout(spacing: 6) {
+                                ForEach(usedBy, id: \.id) { dependent in
+                                    dependentChip(dependent)
+                                }
+                            }
+                        }
+                    }
                     HStack(spacing: 10) {
                         if let homepage = item.homepage, let url = URL(string: homepage) {
                             Button("Open homepage") { NSWorkspace.shared.open(url) }
@@ -82,6 +92,28 @@ struct PackageDetail: View {
     /// Info JSON lists deps by name (tap-qualified full names for third-party
     /// taps). itemIndex keys items by id first, then bare name as fallback.
     private func installedItem(for dep: String) -> BrewItem? { itemIndex[dep] }
+
+    /// Dependents are inventory members by construction (the reverse index is
+    /// built from this same item list), so every chip is a live link.
+    private func dependentChip(_ dependent: BrewItem) -> some View {
+        Button(chipLabel(dependent)) { openPackage(dependent.id) }
+            .buttonStyle(.plain)
+            .font(.callout)
+            .foregroundStyle(.tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.accentColor.opacity(0.12), in: Capsule())
+            .help("Open \(dependent.fullName)")
+    }
+
+    /// Mirror the forward chips: bare name for core taps, full name when a
+    /// third-party tap is what distinguishes the package.
+    private func chipLabel(_ item: BrewItem) -> String {
+        switch item.tap {
+        case nil, "homebrew/core", "homebrew/cask": return item.name
+        default: return item.fullName
+        }
+    }
 
     private var itemIndex: [String: BrewItem] {
         var index: [String: BrewItem] = [:]

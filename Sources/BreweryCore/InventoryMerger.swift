@@ -95,7 +95,7 @@ public struct InventoryMerger {
                 installedAt: ci?.installedTime,
                 kegOnly: false,
                 autoUpdates: ci?.autoUpdates ?? false,
-                dependencies: [],
+                dependencies: (ci?.dependsFormula ?? []) + (ci?.dependsCask ?? []),
                 sourceState: ci != nil ? .complete : .listOnly(reason: listOnlyReason)
             ))
         }
@@ -159,7 +159,7 @@ public struct InventoryMerger {
                 installedAt: ci.installedTime,
                 kegOnly: false,
                 autoUpdates: ci.autoUpdates,
-                dependencies: [],
+                dependencies: ci.dependsFormula + ci.dependsCask,
                 sourceState: .infoOnly
             ))
         }

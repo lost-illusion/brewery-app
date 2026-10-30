@@ -28,6 +28,20 @@ import Testing
     #expect(info.casks.count == 3)
 }
 
+@Test func infoJSON_decode_caskDependsOn() throws {
+    // depends_on is a mixed hash: formula/cask are name arrays, arch/macos are
+    // requirement objects observed live (§45) — they must not break decoding.
+    let info = try InfoSnapshot.decode(Data(#"""
+    {"formulae":[],
+     "casks":[{"token":"wireshark-app","installed":"4.6.9",
+       "depends_on":{"formula":["wireshark"],"cask":["other-app"],
+                     "macos":{">=":["14"]},"arch":[{"type":"arm","bits":64}]}}]}
+    """#.utf8))
+    let c = try #require(info.casks.first)
+    #expect(c.dependsFormula == ["wireshark"])
+    #expect(c.dependsCask == ["other-app"])
+}
+
 @Test func infoJSON_decode_deprecationFields() throws {
     let info = try InfoSnapshot.decode(Data(#"""
     {"formulae":[{"name":"py","full_name":"homebrew/core/py","installed":[],
