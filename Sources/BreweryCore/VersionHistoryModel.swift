@@ -4,6 +4,9 @@ import Observation
 /// Per-package version-history state for the detail page (§21). Kept out of
 /// InventoryModel: changelog sources are gh/git/GitHub REST, never brew, so
 /// they share none of the inventory's brew-mutual-exclusion choreography.
+/// Fetched timelines and release lists persist across launches through
+/// HistoryCacheStore and stay reusable until the retention picked in
+/// Settings → Changelogs expires them (§23).
 @MainActor
 @Observable
 public final class VersionHistoryModel {
@@ -14,10 +17,6 @@ public final class VersionHistoryModel {
         case failed(message: String)
     }
 
-    /// GitHub packaging history barely moves within a work session; 30 min per
-    /// package keeps reselects free without serving week-old timelines forever.
-    public static let cacheTTL: TimeInterval = 1800
-
     public enum ReleaseStatus: Equatable {
         case idle
         case loading
@@ -27,35 +26,42 @@ public final class VersionHistoryModel {
 
     public private(set) var statuses: [String: Status] = [:]
     public private(set) var releaseStatuses: [String: ReleaseStatus] = [:]
+    public private(set) var retention: HistoryCacheRetention
 
-    private struct Cache {
-        let entries: [VersionHistoryEntry]
-        let origin: String
-        let fetchedAt: Date
-    }
-
-    private var caches: [String: Cache] = [:]
+    private var caches: [String: HistoryRecord] = [:]
+    private var releaseCaches: [String: ReleaseRecord] = [:]
     private var tasks: [String: Task<Void, Never>] = [:]
-    private var releaseCaches: [String: (releases: [UpstreamRelease], fetchedAt: Date)] = [:]
     private var releaseTasks: [String: Task<Void, Never>] = [:]
     private var fetcher: VersionHistoryFetcher
+    private let store: HistoryCacheStore?
 
-    public init(fetcher: VersionHistoryFetcher) {
+    public init(fetcher: VersionHistoryFetcher,
+                store: HistoryCacheStore? = nil,
+                retention: HistoryCacheRetention = .thirtyDays) {
         self.fetcher = fetcher
+        self.store = store
+        self.retention = retention
+        if let store {
+            let snapshot = store.load()
+            caches = snapshot.histories
+            releaseCaches = snapshot.releases
+            // A retention shortened since the last launch: drop what the new
+            // window no longer covers before anything can be served from it.
+            pruneExpired()
+        }
     }
 
     /// Settings → Changelogs pushes changes live (same posture as the greedy
-    /// toggle). A changed access invalidates caches: a token/gh switch must
-    /// re-prove the GitHub sources rather than serve the old attempt.
+    /// toggle). A changed access clears the shown statuses but NOT the cache:
+    /// a fetched timeline is the same GitHub data whichever authenticated mode
+    /// retrieved it, so a token/gh switch re-serves it instead of refetching.
     public func configure(source: ChangelogSource, token: String) {
         var access = VersionHistoryFetcher.Access()
         access.source = source
         access.token = token
         guard access != fetcher.access else { return }
         fetcher.access = access
-        caches = [:]
         statuses = [:]
-        releaseCaches = [:]
         releaseStatuses = [:]
     }
 
@@ -65,8 +71,7 @@ public final class VersionHistoryModel {
     /// may load concurrently — only one fetch per package at a time.
     public func load(for item: BrewItem, taps: [TapInfo], force: Bool = false) async {
         if let existing = tasks[item.id] { await existing.value; return } // single flight
-        if !force, let cache = caches[item.id],
-           Date().timeIntervalSince(cache.fetchedAt) < Self.cacheTTL {
+        if !force, let cache = caches[item.id], fresh(cache.fetchedAt) {
             statuses[item.id] = .loaded(entries: cache.entries, origin: cache.origin, fetchedAt: cache.fetchedAt)
             return
         }
@@ -76,9 +81,10 @@ public final class VersionHistoryModel {
             do {
                 let entries = try await fetcher.fetch(route: route, name: item.name)
                 let origin = Self.origin(of: route)
-                let now = Date()
-                caches[item.id] = Cache(entries: entries, origin: origin, fetchedAt: now)
-                statuses[item.id] = .loaded(entries: entries, origin: origin, fetchedAt: now)
+                let record = HistoryRecord(entries: entries, origin: origin, fetchedAt: Date())
+                caches[item.id] = record
+                persist()
+                statuses[item.id] = .loaded(entries: record.entries, origin: record.origin, fetchedAt: record.fetchedAt)
             } catch let error as VersionHistoryError {
                 statuses[item.id] = .failed(message: error.message)
             } catch {
@@ -96,8 +102,7 @@ public final class VersionHistoryModel {
     public func loadReleases(for item: BrewItem, force: Bool = false) async {
         guard let repo = upstreamGitHubRepo(homepage: item.homepage) else { return }
         if let existing = releaseTasks[item.id] { await existing.value; return } // single flight
-        if !force, let cache = releaseCaches[item.id],
-           Date().timeIntervalSince(cache.fetchedAt) < Self.cacheTTL {
+        if !force, let cache = releaseCaches[item.id], fresh(cache.fetchedAt) {
             releaseStatuses[item.id] = .loaded(cache.releases)
             return
         }
@@ -105,8 +110,10 @@ public final class VersionHistoryModel {
             releaseStatuses[item.id] = .loading
             do {
                 let releases = try await fetcher.fetchReleases(owner: repo.owner, repo: repo.repo)
-                releaseCaches[item.id] = (releases, Date())
-                releaseStatuses[item.id] = .loaded(releases)
+                let record = ReleaseRecord(releases: releases, fetchedAt: Date())
+                releaseCaches[item.id] = record
+                persist()
+                releaseStatuses[item.id] = .loaded(record.releases)
             } catch let error as VersionHistoryError {
                 releaseStatuses[item.id] = .failed(message: error.message)
             } catch {
@@ -119,6 +126,42 @@ public final class VersionHistoryModel {
     }
 
     public func releaseStatus(for item: BrewItem) -> ReleaseStatus { releaseStatuses[item.id] ?? .idle }
+
+    /// Settings → Changelogs retention picker. Entries already outside the new
+    /// window are pruned from memory and disk immediately.
+    public func setRetention(_ retention: HistoryCacheRetention) {
+        guard retention != self.retention else { return }
+        self.retention = retention
+        pruneExpired()
+    }
+
+    /// Settings → Changelogs "Clear cache": every cached timeline and release
+    /// list goes, disk included; open packages fall back to .idle and refetch
+    /// on the next view.
+    public func clearCache() {
+        caches = [:]
+        releaseCaches = [:]
+        statuses = [:]
+        releaseStatuses = [:]
+        store?.clear()
+    }
+
+    private func fresh(_ fetchedAt: Date) -> Bool {
+        guard let ttl = retention.timeInterval else { return true } // endless
+        return Date().timeIntervalSince(fetchedAt) < ttl
+    }
+
+    private func pruneExpired() {
+        guard retention.timeInterval != nil else { return } // endless keeps everything
+        let before = caches.count + releaseCaches.count
+        caches = caches.filter { fresh($0.value.fetchedAt) }
+        releaseCaches = releaseCaches.filter { fresh($0.value.fetchedAt) }
+        if caches.count + releaseCaches.count != before { persist() }
+    }
+
+    private func persist() {
+        store?.save(HistoryCacheSnapshot(histories: caches, releases: releaseCaches))
+    }
 
     /// Caption material: which source this timeline came from (§21).
     private static func origin(of route: HistoryRoute) -> String {

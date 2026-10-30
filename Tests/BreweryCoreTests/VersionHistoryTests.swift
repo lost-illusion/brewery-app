@@ -478,7 +478,7 @@ private func tokenFetcher(json: @escaping @Sendable () async throws -> Data) -> 
     #expect(model.status(for: item("curl")) == .idle) // other pages unaffected
 }
 
-@MainActor @Test func model_configureInvalidatesCachesAndReplacesAccess() async throws {
+@MainActor @Test func model_configureClearsStatusesButKeepsCache() async throws {
     let (f, fake) = tokenFetcher { Data("[]".utf8) }
     let model = VersionHistoryModel(fetcher: f)
     await model.load(for: item("wget"), taps: [])
@@ -487,7 +487,13 @@ private func tokenFetcher(json: @escaping @Sendable () async throws -> Data) -> 
     #expect(model.status(for: item("wget")) == .idle) // old attempt must not survive a source flip
     await model.load(for: item("wget"), taps: []) // .off → refused, no request
     #expect(fake.requests.count == 1)
-    model.configure(source: .token, token: "ghp_test") // no-op when unchanged
+    model.configure(source: .token, token: "ghp_test")
+    // A fetched timeline is the same GitHub data whichever authenticated mode
+    // got it: the source flip clears statuses, the cache re-serves them.
+    await model.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1)
+    #expect(model.status(for: item("wget")) != .idle)
+    model.clearCache() // only an explicit clear refetches
     await model.load(for: item("wget"), taps: [])
     #expect(fake.requests.count == 2)
 }
@@ -510,4 +516,110 @@ private func tokenFetcher(json: @escaping @Sendable () async throws -> Data) -> 
     #expect(model.releaseStatus(for: item("wget", homepage: "https://www.gnu.org/software/wget/")) == .idle)
     model.configure(source: .off, token: "")
     #expect(model.releaseStatus(for: agterm) == .idle) // releases follow the source flip too
+}
+
+// MARK: - Disk cache & retention (§23)
+
+private func tempStore() -> HistoryCacheStore {
+    HistoryCacheStore(directory: FileManager.default.temporaryDirectory
+        .appendingPathComponent("brewery-cache-test-\(UUID().uuidString)", isDirectory: true))
+}
+
+private func daysAgo(_ days: Int) -> Date {
+    Calendar.current.date(byAdding: .day, value: -days, to: Date())!
+}
+
+private func seededStore(fetchedDaysAgo: Int, withReleases: Bool = false) -> HistoryCacheStore {
+    let store = tempStore()
+    var snapshot = HistoryCacheSnapshot(histories: [
+        "wget": HistoryRecord(entries: [VersionHistoryEntry(id: "seed", subject: "wget 0.9",
+                                                             date: nil, versionBump: "0.9", webURL: nil)],
+                              origin: "GitHub seed", fetchedAt: daysAgo(fetchedDaysAgo)),
+    ], releases: [:])
+    if withReleases {
+        snapshot.releases["wget"] = ReleaseRecord(releases: [
+            UpstreamRelease(id: "u1", tag: "v0.9", title: nil, publishedAt: nil,
+                            webURL: nil, isPrerelease: false, bodyText: nil)],
+                            fetchedAt: daysAgo(fetchedDaysAgo))
+    }
+    store.save(snapshot)
+    return store
+}
+
+@Test func retention_windowsAndEndless() {
+    #expect(HistoryCacheRetention.sevenDays.timeInterval == TimeInterval(7 * 86_400))
+    #expect(HistoryCacheRetention.thirtyDays.timeInterval == TimeInterval(30 * 86_400))
+    #expect(HistoryCacheRetention.ninetyDays.timeInterval == TimeInterval(90 * 86_400))
+    #expect(HistoryCacheRetention.endless.timeInterval == nil)
+    #expect(HistoryCacheRetention(rawValue: "30d") == .thirtyDays)
+    #expect(HistoryCacheRetention(rawValue: "nonsense") == nil)
+}
+
+@MainActor @Test func cache_servesWithinWindowAndRefetchesBeyondIt() async throws {
+    let (f, fake) = tokenFetcher { Data(#"[{"sha":"a","commit":{"message":"wget 1.0","author":{"date":"2026-01-01T00:00:00Z"}}}]"#.utf8) }
+    // 20 days old: inside the default 30-day window → served, zero requests.
+    let model = VersionHistoryModel(fetcher: f, store: seededStore(fetchedDaysAgo: 20, withReleases: true))
+    await model.load(for: item("wget"), taps: [])
+    if case .loaded(let entries, let origin, _) = model.status(for: item("wget")) {
+        #expect(entries.first?.versionBump == "0.9") // the seeded entry, not the fake's
+        #expect(origin == "GitHub seed")
+    } else { Issue.record("expected loaded") }
+    #expect(fake.requests.isEmpty)
+    // Releases follow the same window.
+    await model.loadReleases(for: item("wget", homepage: "https://github.com/umputun/agterm"))
+    if case .loaded(let releases) = model.releaseStatus(for: item("wget", homepage: "https://github.com/umputun/agterm")) {
+        #expect(releases.first?.tag == "v0.9")
+    } else { Issue.record("expected loaded") }
+    #expect(fake.requests.isEmpty)
+    // Shortening to 7d prunes the 20-day-old records → next load refetches.
+    model.setRetention(.sevenDays)
+    await model.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1)
+    await model.loadReleases(for: item("wget", homepage: "https://github.com/umputun/agterm"))
+    #expect(fake.requests.count == 2)
+}
+
+@MainActor @Test func cache_endlessKeepsArbitraryAgeAndShrinkingPrunesDisk() async throws {
+    let (f, fake) = tokenFetcher { Data("[]".utf8) }
+    let store = seededStore(fetchedDaysAgo: 200)
+    let model = VersionHistoryModel(fetcher: f, store: store, retention: .endless)
+    await model.load(for: item("wget"), taps: [])
+    if case .loaded(let entries, _, _) = model.status(for: item("wget")) {
+        #expect(entries.first?.versionBump == "0.9")
+    } else { Issue.record("expected loaded") }
+    #expect(fake.requests.isEmpty) // endless: even 200 days old is fresh
+    // Shrinking prunes disk too: a fresh model over the same store must refetch.
+    model.setRetention(.thirtyDays)
+    let later = VersionHistoryModel(fetcher: f, store: store)
+    await later.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1)
+}
+
+@MainActor @Test func cache_survivesLaunchesAndClearCacheWipesDisk() async throws {
+    let (f, fake) = tokenFetcher { Data(#"[{"sha":"a","commit":{"message":"wget 1.0","author":{"date":"2026-01-01T00:00:00Z"}}}]"#.utf8) }
+    let store = tempStore()
+    let first = VersionHistoryModel(fetcher: f, store: store)
+    await first.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1)
+    // Same store, new model: the fetch happened in the previous "launch".
+    let second = VersionHistoryModel(fetcher: f, store: store)
+    await second.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1) // served from disk, no network
+    if case .loaded(let entries, _, _) = second.status(for: item("wget")) {
+        #expect(entries.first?.versionBump == "1.0")
+    } else { Issue.record("expected loaded") }
+    second.clearCache()
+    #expect(second.status(for: item("wget")) == .idle) // open pages fall back to idle
+    let third = VersionHistoryModel(fetcher: f, store: store)
+    await third.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 2) // disk was wiped, so this one refetches
+}
+
+@MainActor @Test func cache_corruptFileDegradesToEmpty() async throws {
+    let (f, fake) = tokenFetcher { Data("[]".utf8) }
+    let store = tempStore()
+    try? Data("not json".utf8).write(to: store.fileURL)
+    let model = VersionHistoryModel(fetcher: f, store: store)
+    await model.load(for: item("wget"), taps: [])
+    #expect(fake.requests.count == 1) // cache never blocks a fetch
 }

@@ -46,7 +46,9 @@ final class AppState {
         historyAccess.token = defaults.string(forKey: Self.githubTokenKey) ?? ""
         versionHistory = VersionHistoryModel(fetcher: VersionHistoryFetcher(
             access: historyAccess, gitURL: gitURL, ghURL: ghURL,
-            exec: ProcessExecRunner(), github: LiveGitHubJSON()))
+            exec: ProcessExecRunner(), github: LiveGitHubJSON()),
+            store: HistoryCacheStore(directory: storeDir),
+            retention: HistoryCacheRetention(rawValue: defaults.string(forKey: Self.historyRetentionKey) ?? "") ?? .thirtyDays)
     }
 
     static func detectJq() -> Bool {
@@ -58,6 +60,7 @@ final class AppState {
     static let brewOverrideKey = "brewPathOverride"
     static let changelogSourceKey = "changelogSource"
     static let githubTokenKey = "githubToken"
+    static let historyRetentionKey = "historyCacheRetention"
 }
 
 @main

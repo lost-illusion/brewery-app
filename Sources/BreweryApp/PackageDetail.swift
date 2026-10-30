@@ -390,7 +390,9 @@ struct PackageDetail: View {
                        isOn: $showAllCommits)
                     .font(.caption)
             }
-            Text("\(origin) · fetched \(fetchedAt.formatted(date: .omitted, time: .shortened))")
+            // Relative age, not a clock time: a cached timeline can now be
+            // days old (§23) and "fetched 14:32" would read as "today".
+            Text("\(origin) · fetched \(fetchedAt.formatted(.relative(presentation: .named)))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

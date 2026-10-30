@@ -46,11 +46,13 @@ private struct ChangelogSettingsPane: View {
     @Environment(AppState.self) private var app
     @AppStorage(AppState.changelogSourceKey) private var source: ChangelogSource = .off
     @AppStorage(AppState.githubTokenKey) private var token = ""
+    @AppStorage(AppState.historyRetentionKey) private var retention: HistoryCacheRetention = .thirtyDays
 
     @State private var sourceOutcome: ProbeOutcome?
     @State private var gitOutcome: ProbeOutcome?
     @State private var testingSource = false
     @State private var testingGit = false
+    @State private var cleared = false
 
     var body: some View {
         Form {
@@ -101,6 +103,29 @@ private struct ChangelogSettingsPane: View {
                               busy: testingGit,
                               action: { runGitTest() },
                               explanation: "Installed Homebrew taps are git clones; their history needs a working git. The Xcode Command Line Tools provide one.")
+            }
+
+            Section("Version history cache") {
+                Picker("Keep cached history", selection: $retention) {
+                    ForEach(HistoryCacheRetention.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .onChange(of: retention) { _, newValue in
+                    app.versionHistory.setRetention(newValue)
+                }
+                Text("Fetched timelines and release notes are reused until this window expires — cached packages open instantly, across launches. Shortening the window drops entries already outside it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Clear cache") {
+                        app.versionHistory.clearCache()
+                        cleared = true
+                    }
+                    if cleared {
+                        Text("Cache cleared").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .padding(20)

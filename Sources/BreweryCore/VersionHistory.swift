@@ -6,7 +6,7 @@ import Foundation
 /// homebrew-cask commit touching the definition file, or a local tap git
 /// commit. `versionBump` carries the version when the subject is a bare
 /// `<name> <version>` bump; `webURL` exists for GitHub entries only.
-public struct VersionHistoryEntry: Identifiable, Hashable, Sendable {
+public struct VersionHistoryEntry: Identifiable, Hashable, Sendable, Codable {
     public let id: String // commit sha
     public let subject: String // first line of the commit message
     public let date: Date?
@@ -198,7 +198,7 @@ private func parseTimestamp(_ raw: String?) -> Date? {
 
 /// One GitHub release of the package's upstream repo — the closest thing to a
 /// real changelog when the upstream publishes one (agterm → umputun/agterm).
-public struct UpstreamRelease: Identifiable, Hashable, Sendable {
+public struct UpstreamRelease: Identifiable, Hashable, Sendable, Codable {
     public let id: String // release page URL, fallback tag
     public let tag: String
     public let title: String? // release name; nil when identical to the tag
