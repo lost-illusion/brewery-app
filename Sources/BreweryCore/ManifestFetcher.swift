@@ -6,8 +6,16 @@ public protocol HTTPFetching: Sendable {
 
 public struct LiveHTTP: HTTPFetching {
     public init() {}
+
+    /// ~16 MB payload: the 60 s URLSession default timed out on a live fetch (2026-10-30).
+    public static func request(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 180
+        return request
+    }
+
     public func data(from url: URL) async throws -> Data {
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let (data, _) = try await URLSession.shared.data(for: Self.request(url: url))
         return data
     }
 }

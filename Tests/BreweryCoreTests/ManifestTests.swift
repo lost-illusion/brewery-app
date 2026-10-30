@@ -10,6 +10,33 @@ import Testing
     #expect(manifest.latestCaskVersion("nope") == nil)
 }
 
+@Test func manifest_decode_liveWrapper() throws {
+    // Live endpoint format (verified 2026-10-30): JWS JSON serialization
+    // {"payload":"<manifest JSON string>","signatures":[…]} — NOT a compact dotted JWS.
+    let wrapper = #"{"payload":"{\"metadata\":{\"bottle_tag\":\"arm64_golden_gate\"},\"formulae\":{\"ace\":{\"stable_version\":\"8.1.1\"}},\"casks\":{\"wireshark-app\":{\"version\":\"4.7.0\"}}}","signatures":[{"signature":"abc123"}]}"#
+    let manifest = try PackageManifest.decode(jwsData: Data(wrapper.utf8))
+    #expect(manifest.latestFormulaVersion("ace") == "8.1.1")
+    #expect(manifest.latestCaskVersion("wireshark-app") == "4.7.0")
+    #expect(manifest.bottleTag == "arm64_golden_gate")
+}
+
+@Test func manifest_decode_licenseAsSPDXObject() throws {
+    // Live payload (verified 2026-10-30): 855 of 8686 formulae carry license as an
+    // SPDX object — {"GPL-3.0-or-later": {":with": "GCC-exception-3.1"}} or
+    // {":all_of": [...]} / {":any_of": [...]} — not a String. Whole decode threw.
+    let json = #"{"metadata":{"bottle_tag":"arm64_golden_gate"},"formulae":{"aarch64-elf-gcc":{"stable_version":"15.2.0","license":{"GPL-3.0-or-later":{":with":"GCC-exception-3.1"}}},"abook":{"stable_version":"2.13.2","license":{":all_of":["GPL-3.0-only","BSD-2-Clause"]}}},"casks":{}}"#
+    let m = try PackageManifest.decode(jwsData: Data(json.utf8))
+    // Normalized: license identifiers flattened, sorted unique, comma-joined.
+    #expect(m.formulae["aarch64-elf-gcc"]?.license == "GCC-exception-3.1, GPL-3.0-or-later")
+    #expect(m.formulae["abook"]?.license == "BSD-2-Clause, GPL-3.0-only")
+}
+
+@Test func manifest_liveHTTPRequestTimeout() {
+    // The manifest is ~16 MB; URLSession's 60 s default timed out on a live fetch (2026-10-30).
+    let request = LiveHTTP.request(url: ManifestFetcher.endpointURL(bottleTag: "arm64_golden_gate"))
+    #expect(request.timeoutInterval >= 120)
+}
+
 @Test func manifest_endpointURL() {
     let url = ManifestFetcher.endpointURL(bottleTag: "arm64_golden_gate")
     #expect(url.host == "formulae.brew.sh")
