@@ -213,10 +213,12 @@ struct PackageRow: View {
         let installed = item.linkedVersion ?? item.installedVersions.last ?? "?"
         switch item.outdated {
         case .updateAvailable(let latest):
+            // Green, not tint: the selected row's background is the tint
+            // (blue), so blue-on-blue version text disappears when clicked.
             HStack(spacing: 4) {
                 Text(installed).foregroundStyle(.secondary)
-                Image(systemName: "arrow.right").foregroundStyle(.tint)
-                Text(latest).fontWeight(.semibold).foregroundStyle(.tint)
+                Image(systemName: "arrow.right").foregroundStyle(.green)
+                Text(latest).fontWeight(.semibold).foregroundStyle(.green)
             }
         case .upToDate:
             Text(installed).foregroundStyle(.secondary)

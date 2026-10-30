@@ -413,9 +413,11 @@ struct TapDetail: View {
     @ViewBuilder private func outdatedBadge(_ item: BrewItem) -> some View {
         switch item.outdated {
         case .updateAvailable(let latest):
-            Text("update → \(latest)").font(.caption.bold()).foregroundStyle(.tint)
+            // Green = update available, matching the list rows; "up to date"
+            // drops to secondary so the two badges stay distinguishable.
+            Text("update → \(latest)").font(.caption.bold()).foregroundStyle(.green)
         case .upToDate:
-            Text("up to date").font(.caption).foregroundStyle(.green)
+            Text("up to date").font(.caption).foregroundStyle(.secondary)
         case .selfUpdating:
             Text("self-updating").font(.caption).foregroundStyle(.secondary)
         case nil, .some(.unknown):
@@ -441,6 +443,7 @@ struct TapDetail: View {
                     }
             }
             .buttonStyle(.borderedProminent)
+            .tint(.green)
             .disabled(item.isPinned || model.state == .loading || model.upgrade != .idle)
             .help(item.isPinned
                   ? "pinned — brew upgrade skips pinned packages"
