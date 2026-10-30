@@ -19,6 +19,21 @@ struct PackageList: View {
             content
         }
         .searchable(text: $query, prompt: "Filter name or description")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                // Manual refresh: re-runs list+info now; the manifest follows its
+                // 24 h cache (the app never runs `brew update` — design §Freshness).
+                if model.state == .loading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button {
+                        Task { await model.refresh(reason: .manual) }
+                    } label: {
+                        Label("Refresh", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder private var banners: some View {
