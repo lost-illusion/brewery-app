@@ -45,6 +45,7 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
         "list --cask --versions": ok(Data("wireshark-app 4.6.9\n".utf8)),
         "tap-info --installed --json": ok(fixtureData("taps.json")),
         "tap": ok(Data("umputun/apps\n".utf8)),
+        "trust --json=v1": ok(fixtureData("trust.json")),
     ]
     results.merge(tapResults) { _, new in new }
     let runner = ScriptedRunner(results: results)
@@ -64,9 +65,9 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
     let (model, runner) = makeHarness()
     await model.loadTaps()
     await model.loadTaps()
-    #expect(runner.calls == [["tap-info", "--installed", "--json"]]) // one call, not two
+    #expect(runner.calls == [["tap-info", "--installed", "--json"], ["trust", "--json=v1"]]) // one tap read + one trust read
     await model.loadTaps(force: true)
-    #expect(runner.calls.count == 2)
+    #expect(runner.calls.count == 4)
     #expect(model.tapsState == .ready)
     #expect(model.tapsNamesOnly == false)
 }
@@ -85,7 +86,9 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
 @Test func taps_withoutJqFallBackToNamesOnly() async {
     let (model, runner) = makeHarness(jqAvailable: false)
     await model.loadTaps()
-    #expect(runner.calls == [["tap"]]) // never asks brew for JSON it cannot parse
+    // trust --json is the one JSON brew emits without jq (verified 2026-10-30, §22),
+    // so the no-jq path still reads per-item trust state.
+    #expect(runner.calls == [["tap"], ["trust", "--json=v1"]])
     #expect(model.tapsNamesOnly)
     #expect(model.taps.map(\.name) == ["umputun/apps"])
     #expect(model.taps.first?.availableCount == 0)
@@ -222,4 +225,164 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
     await (a, b)
     let taps = runner.calls.filter { $0.first == "tap" }
     #expect(taps.count == 1) // one mutation at a time; the second call joins the first
+}
+
+// MARK: - Item-level trust & install (compat §22)
+
+@MainActor
+@Test func trustStore_loadsWithTaps() async {
+    let (model, _) = makeHarness()
+    #expect(model.trustStore == nil) // unknown until the taps pane asks
+    await model.loadTaps()
+    #expect(model.trustStore?.isTrusted(qualified: "umputun/apps/revdiff", kind: .formula) == true)
+    #expect(model.trustStore?.isTrusted(qualified: "umputun/apps/cronn", kind: .formula) == false)
+}
+
+@MainActor
+@Test func itemTrust_usesFormulaFlagThenReReadsTrustStore() async {
+    let granted = """
+    {"taps":[],"formulae":["umputun/apps/cronn"],"casks":[],"commands":[]}
+    """
+    let (model, runner) = makeHarness(tapResults: [
+        "trust --formula umputun/apps/cronn": ok("Trusted formula: umputun/apps/cronn\n"),
+        "trust --json=v1": ok(granted),
+    ])
+    await model.trustItem(qualified: "umputun/apps/cronn", kind: .formula)
+    #expect(runner.calls.first == ["trust", "--formula", "umputun/apps/cronn"])
+    #expect(model.tapAction == .idle)
+    // re-read after the mutation, so row buttons show the new grant without a manual refresh
+    #expect(runner.calls.filter { $0 == ["trust", "--json=v1"] }.count == 1)
+    #expect(model.trustStore?.isTrusted(qualified: "umputun/apps/cronn", kind: .formula) == true)
+    // trusted rows change shape once info sees them (§43), so the inventory reloads too
+    #expect(runner.calls.contains { $0.first == "list" })
+}
+
+@MainActor
+@Test func itemUntrust_usesCaskFlagForCasks() async {
+    let (model, runner) = makeHarness(tapResults: ["untrust --cask umputun/apps/agterm": ok("Untrusted cask: agterm\n")])
+    await model.untrustItem(qualified: "umputun/apps/agterm", kind: .cask)
+    #expect(runner.calls.first == ["untrust", "--cask", "umputun/apps/agterm"])
+    #expect(model.tapAction == .idle)
+}
+
+@MainActor
+@Test func itemInstall_runsBrewInstallAndReloadsInventory() async {
+    // qualified install from an untrusted tap: brew auto-trusts the item itself (§22);
+    // -y because ask mode is brew's install default and would hang the GUI (§77)
+    let (model, runner) = makeHarness(tapResults: ["install -y umputun/apps/mpt": ok("==> Pouring mpt bottle\n")])
+    await model.installItem("umputun/apps/mpt")
+    #expect(runner.calls.first == ["install", "-y", "umputun/apps/mpt"])
+    #expect(model.tapAction == .idle)
+    #expect(runner.calls.contains { $0.first == "list" }) // the new package must appear in the inventory
+}
+
+@MainActor
+@Test func itemActions_refusedWhileExternalBrewRunning() async {
+    let (model, runner) = makeHarness(probeRunning: true)
+    await model.installItem("umputun/apps/mpt")
+    if case .failed(let action, let message) = model.tapAction {
+        #expect(action == .installing(qualified: "umputun/apps/mpt"))
+        #expect(message.contains("brew is busy"))
+    } else {
+        Issue.record("expected .failed, got \(model.tapAction)")
+    }
+    #expect(runner.calls.filter { $0.first == "install" }.isEmpty)
+}
+
+// MARK: - Preview of not-installed packages (compat §22)
+
+@MainActor
+@Test func preview_buildsItemFromTargetedInfoJSON() async {
+    let (model, runner) = makeHarness(tapResults: [
+        "info --json=v2 umputun/apps/revdiff": ok(fixtureData("info-preview.json")),
+    ])
+    let result = await model.fetchPreview(qualified: "umputun/apps/revdiff", kind: .formula)
+    guard case .success(let item) = result else {
+        Issue.record("expected .success, got \(result)")
+        return
+    }
+    #expect(runner.calls == [["info", "--json=v2", "umputun/apps/revdiff"]])
+    #expect(item.fullName == "umputun/apps/revdiff")
+    #expect(item.tap == "umputun/apps")
+    #expect(item.latestVersion == "1.13.0")       // versions.stable of the definition
+    #expect(item.installedVersions.isEmpty)       // preview: nothing installed locally
+    #expect(item.outdated == nil)                 // not installed → nothing to compare
+    #expect(item.sourceState == .complete)
+}
+
+@MainActor
+@Test func preview_installedRowCarriesFactsAndBrewsOutdatedVerdict() async {
+    // tap packages are absent from the core manifest, so the preview takes
+    // brew's own `outdated` boolean as the authority (§22)
+    let installedJSON = """
+    {"formulae":[{"name":"revdiff","full_name":"umputun/apps/revdiff","tap":"umputun/apps",
+      "desc":"TUI","homepage":"https://github.com/umputun/revdiff",
+      "versions":{"stable":"1.14.0"},
+      "installed":[{"version":"1.13.0","time":1730000000}],"linked_keg":"1.13.0",
+      "pinned":false,"outdated":true,"deprecated":false,"disabled":false,
+      "keg_only":false,"dependencies":[]}],"casks":[]}
+    """
+    let (model, _) = makeHarness(tapResults: ["info --json=v2 umputun/apps/revdiff": ok(installedJSON)])
+    let result = await model.fetchPreview(qualified: "umputun/apps/revdiff", kind: .formula)
+    guard case .success(let item) = result else {
+        Issue.record("expected .success, got \(result)")
+        return
+    }
+    #expect(item.installedVersions == ["1.13.0"])
+    #expect(item.linkedVersion == "1.13.0")
+    #expect(item.latestVersion == "1.14.0")
+    #expect(item.outdated == .updateAvailable(latest: "1.14.0"))
+    #expect(item.installedAt != nil)
+}
+
+@MainActor
+@Test func preview_caskAddsCaskFlag() async {
+    let caskJSON = """
+    {"formulae":[],"casks":[{"token":"agterm","tap":"umputun/apps","version":"0.3.0",
+      "desc":"Terminal on libghostty","homepage":"https://github.com/umputun/agterm","auto_updates":true}]}
+    """
+    let (model, runner) = makeHarness(tapResults: ["info --json=v2 --cask umputun/apps/agterm": ok(caskJSON)])
+    let result = await model.fetchPreview(qualified: "umputun/apps/agterm", kind: .cask)
+    guard case .success(let item) = result else {
+        Issue.record("expected .success, got \(result)")
+        return
+    }
+    #expect(runner.calls.first == ["info", "--json=v2", "--cask", "umputun/apps/agterm"])
+    #expect(item.kind == .cask)
+    #expect(item.latestVersion == "0.3.0")
+    #expect(item.autoUpdates == true)
+}
+
+@MainActor
+@Test func preview_selfUpdatingCaskFollowsGreedySetting() async {
+    let caskJSON = """
+    {"formulae":[],"casks":[{"token":"agterm","tap":"umputun/apps","version":"1.0.0",
+      "installed":"1.0.0","installed_time":1730000000,"outdated":false,"pinned":false,
+      "deprecated":false,"disabled":false,"auto_updates":true}]}
+    """
+    let (model, _) = makeHarness(tapResults: ["info --json=v2 --cask umputun/apps/agterm": ok(caskJSON)])
+    let quiet = await model.fetchPreview(qualified: "umputun/apps/agterm", kind: .cask)
+    guard case .success(let item) = quiet else { Issue.record("expected .success"); return }
+    #expect(item.outdated == .upToDate) // brew-default: self-updating casks are not outdated
+    model.settings.greedyOutdated = true
+    let greedy = await model.fetchPreview(qualified: "umputun/apps/agterm", kind: .cask)
+    guard case .success(let greedyItem) = greedy else { Issue.record("expected .success"); return }
+    #expect(greedyItem.outdated == .selfUpdating(latestKnown: "1.0.0")) // matches the inventory policy (§70)
+}
+
+@MainActor
+@Test func preview_untrustedItemSurfacesBrewsRefusalVerbatim() async {
+    // brew's real refusal (reproduced 2026-10-30 on this machine, compat §22)
+    let refusal = fail("""
+    Error: Refusing to load formula umputun/apps/cronn from untrusted tap umputun/apps.
+    Run `brew trust --formula umputun/apps/cronn` or `brew trust umputun/apps` to trust it.
+    """)
+    let (model, _) = makeHarness(tapResults: ["info --json=v2 umputun/apps/cronn": refusal])
+    let result = await model.fetchPreview(qualified: "umputun/apps/cronn", kind: .formula)
+    guard case .failure(let error) = result else {
+        Issue.record("expected .failure, got .success")
+        return
+    }
+    #expect(error.message.contains("Refusing to load formula")) // brew's own wording, names the fix
+    #expect(error.message.contains("brew trust --formula"))
 }

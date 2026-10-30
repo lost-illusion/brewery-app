@@ -1,0 +1,25 @@
+{
+  "formulae": [
+    {
+      "name": "revdiff",
+      "full_name": "umputun/apps/revdiff",
+      "tap": "umputun/apps",
+      "oldnames": [],
+      "aliases": [],
+      "versioned_formulae": [],
+      "desc": "TUI for reviewing diffs, files, and documents with inline annotations",
+      "license": "MIT",
+      "homepage": "https://github.com/umputun/revdiff",
+      "versions": { "stable": "1.13.0", "head": null, "bottle": false },
+      "installed": [],
+      "linked_keg": null,
+      "pinned": false,
+      "outdated": false,
+      "deprecated": false,
+      "disabled": false,
+      "keg_only": false,
+      "dependencies": []
+    }
+  ],
+  "casks": []
+}

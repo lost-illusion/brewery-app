@@ -39,12 +39,11 @@ struct ContentView: View {
         } detail: {
             switch navigation {
             case .taps:
+                // Installed tap rows no longer jump to the inventory detail column:
+                // the tap pane's own preview subview serves installed and
+                // not-installed rows identically (same click, same page).
                 TapDetail(tap: selectedTapID.flatMap { id in app.model.taps.first { $0.id == id } },
-                          model: app.model,
-                          openPackage: { id in
-                              navigation = .all
-                              selectedID = id
-                          })
+                          model: app.model)
             default:
                 PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
                               allItems: app.model.items,

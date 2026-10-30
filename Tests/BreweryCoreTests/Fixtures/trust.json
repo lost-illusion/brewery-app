@@ -1,0 +1,11 @@
+{
+  "taps": [],
+  "formulae": [
+    "umputun/apps/revdiff"
+  ],
+  "casks": [
+    "umputun/apps/agterm",
+    "umputun/apps/revmux"
+  ],
+  "commands": []
+}

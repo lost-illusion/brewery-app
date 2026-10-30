@@ -48,6 +48,8 @@ public enum UpgradePhase: Equatable { case updatingHomebrew, upgradingPackages }
 public enum TapAction: Equatable {
     case tapping(name: String), untapping(name: String)
     case trusting(name: String), untrusting(name: String)
+    case trustingItem(qualified: String), untrustingItem(qualified: String)
+    case installing(qualified: String)
 
     public var label: String {
         switch self {
@@ -55,6 +57,9 @@ public enum TapAction: Equatable {
         case .untapping(let n): "Untapping \(n)…"
         case .trusting(let n): "Trusting \(n)…"
         case .untrusting(let n): "Untrusting \(n)…"
+        case .trustingItem(let q): "Trusting \(q)…"
+        case .untrustingItem(let q): "Untrusting \(q)…"
+        case .installing(let q): "Installing \(q)…"
         }
     }
 }
@@ -88,6 +93,8 @@ public final class InventoryModel {
     public private(set) var tapAction: TapActionState = .idle
     /// true when taps came from `brew tap` (names only) because jq is absent.
     public private(set) var tapsNamesOnly = false
+    /// Item-level trust grants (`brew trust --json=v1`); nil = unknown (read failed).
+    public private(set) var trustStore: TrustStore?
     public var settings: InventorySettings
 
     private let runner: CommandRunning
@@ -326,6 +333,62 @@ public final class InventoryModel {
         await runTapAction(.untrusting(name: tap.name), args: ["untrust", "--tap", tap.name], reloadInventory: true)
     }
 
+    /// Item-level trust (`brew trust --formula|--cask <tap>/<name>`): lets brew load
+    /// ONE tap definition while the tap itself stays untrusted (§22). Inventory is
+    /// re-read because a trusted installed item finally appears in `info --installed` (§43).
+    public func trustItem(qualified: String, kind: BrewItem.Kind) async {
+        await runTapAction(.trustingItem(qualified: qualified),
+                           args: ["trust", Self.trustFlag(kind), qualified], reloadInventory: true)
+    }
+
+    public func untrustItem(qualified: String, kind: BrewItem.Kind) async {
+        await runTapAction(.untrustingItem(qualified: qualified),
+                           args: ["untrust", Self.trustFlag(kind), qualified], reloadInventory: true)
+    }
+
+    /// `brew install -y <tap>/<name>`. -y because ask mode is brew's install default
+    /// and a TTY prompt would hang the GUI (same posture as upgrade, §77). A
+    /// fully-qualified install grants the item's trust itself — observed 2026-10-30:
+    /// brew trusted `umputun/apps/mpt` from an *untrusted* tap (§22) — so no separate
+    /// trust step gates this button.
+    public func installItem(_ qualified: String) async {
+        await runTapAction(.installing(qualified: qualified), args: ["install", "-y", qualified], reloadInventory: true)
+    }
+
+    private static func trustFlag(_ kind: BrewItem.Kind) -> String {
+        kind == .formula ? "--formula" : "--cask"
+    }
+
+    // MARK: - Preview (packages this machine has not installed)
+
+    /// A preview read failed; `message` is brew's own wording (verbatim refusal
+    /// when it refused), ready to display without re-wrapping.
+    public struct PreviewError: Error, Equatable { public let message: String }
+
+    /// `brew info --json=v2 <tap>/<name>` answers for not-installed packages from the
+    /// tap definition / its API data without installing anything (verified 2026-10-30).
+    /// For an item whose tap is untrusted, brew refuses with its own wording and names
+    /// the `brew trust` fix (§22) — the GUI surfaces that verbatim and offers the Trust action.
+    public func fetchPreview(qualified: String, kind: BrewItem.Kind) async -> Result<BrewItem, PreviewError> {
+        if let refresh = refreshTask { await refresh.value }   // never race our own brews
+        if let upgrade = upgradeTask { await upgrade.value }
+        if let action = tapActionTask { await action.value }
+        var args = ["info", "--json=v2"]
+        if kind == .cask { args.append("--cask") }
+        args.append(qualified)
+        do {
+            let result = try await runner.run(args)
+            guard result.exitCode == 0 else { return .failure(PreviewError(message: failureMessage(for: result))) }
+            let snapshot = try InfoSnapshot.decode(result.stdout)
+            guard let item = InventoryMerger.preview(from: snapshot, kind: kind, greedy: settings.greedyOutdated) else {
+                return .failure(PreviewError(message: "brew reported no \(kind == .formula ? "formula" : "cask") for \(qualified)"))
+            }
+            return .success(item)
+        } catch {
+            return .failure(PreviewError(message: "brew command failed: \(error.localizedDescription)"))
+        }
+    }
+
     private func parseTapNameError(_ raw: String) -> String {
         if case .failure(let problem) = parseTapName(raw) { return problem.message }
         return "invalid tap name"
@@ -354,6 +417,9 @@ public final class InventoryModel {
                 return
             }
             tapAction = .idle
+            // Every mutation can move the trust store: trust/untrust directly, and an
+            // install because a fully-qualified install auto-trusts the item (§22).
+            // performLoadTaps ends with performLoadTrust, so the store re-reads with the taps.
             await performLoadTaps()
             // Tapping/untapping changes which packages exist and where they came from.
             if reloadInventory { await performRefresh(forceManifest: true) }
@@ -380,8 +446,22 @@ public final class InventoryModel {
             }
             tapsUpdated = Date()
             tapsState = .ready
+            await performLoadTrust()
         } catch {
             failTaps(message: "brew command failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// `brew trust --json=v1` — per-item grants. Not gated on jqAvailable: brew emits
+    /// this JSON without jq (verified 2026-10-30 with jq off PATH; the CLI pretty-prints
+    /// it in Ruby, unlike list/info — §22). A failed read leaves the store unknown;
+    /// the tap pane then hides per-item trust buttons rather than guessing a state.
+    private func performLoadTrust() async {
+        do {
+            let result = try await runner.run(["trust", "--json=v1"])
+            trustStore = result.exitCode == 0 ? try? TrustStore.decode(result.stdout) : nil
+        } catch {
+            trustStore = nil
         }
     }
 
