@@ -13,6 +13,7 @@ struct PackageDetail: View {
     @AppStorage(AppState.changelogSourceKey) private var changelogSource: ChangelogSource = .off
     @State private var showAllCommits = false
     @State private var visibleCommits = 10
+    @State private var changelogRelease: UpstreamRelease?
 
     var body: some View {
         if let item {
@@ -98,6 +99,10 @@ struct PackageDetail: View {
                 .onChange(of: item.id) { _, _ in
                     showAllCommits = false
                     visibleCommits = 10
+                    changelogRelease = nil
+                }
+                .sheet(item: $changelogRelease) { release in
+                    ChangelogSheet(release: release)
                 }
             }
         } else {
@@ -170,9 +175,39 @@ struct PackageDetail: View {
                 Text(item.kind == .formula ? "Formula" : "Cask").font(.callout)
                 outdatedBadge(item)
                 Spacer()
+                if let release = targetRelease(for: item) {
+                    noteButton(release)
+                }
                 updateButton(item)
             }
         }
+    }
+
+    /// Which release the header's changelog button documents: the update
+    /// target when one exists, else the installed version. Only a GitHub
+    /// release with a non-empty body earns the button (§21).
+    private func targetRelease(for item: BrewItem) -> UpstreamRelease? {
+        let version: String?
+        switch item.outdated {
+        case .updateAvailable(let latest): version = latest
+        default: version = item.installedVersions.first
+        }
+        guard let version,
+              let release = upstreamRelease(matching: version, in: loadedReleases(for: item)),
+              let body = release.bodyText, !body.isEmpty else { return nil }
+        return release
+    }
+
+    /// Opens the in-app changelog modal for one release. Icon only where a
+    /// GitHub release with notes backs the row — tap commits and bodyless
+    /// releases stay icon-free.
+    private func noteButton(_ release: UpstreamRelease) -> some View {
+        Button { changelogRelease = release } label: {
+            Image(systemName: "note.text")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.tint)
+        .help("Show \(release.tag) release notes")
     }
 
     /// Only outdated pages get an Update action; the badge row stays uncluttered
@@ -423,6 +458,9 @@ struct PackageDetail: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
+            if let matched, matched.bodyText != nil {
+                noteButton(matched)
+            }
             if let url = entry.webURL {
                 Button { NSWorkspace.shared.open(url) } label: {
                     Image(systemName: "arrow.up.right.square")
@@ -477,11 +515,14 @@ struct PackageDetail: View {
                 Text(title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
+            if release.bodyText != nil {
+                noteButton(release)
+            }
         }
     }
 }
 
-private extension String {
+extension String {
     /// Release titles that just repeat the version the row already prints
     /// ("0.39.1" beside "v0.39.1") carry no information → drop them. Decode
     /// only catches title == tag; this also catches title == the bump version.

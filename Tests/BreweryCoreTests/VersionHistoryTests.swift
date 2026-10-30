@@ -345,10 +345,10 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
     let releases = [
         UpstreamRelease(id: "u1", tag: "v0.39.1", title: nil, publishedAt: nil,
                         webURL: URL(string: "https://github.com/umputun/agterm/releases/tag/v0.39.1"),
-                        isPrerelease: false),
+                        isPrerelease: false, bodyText: nil),
         UpstreamRelease(id: "u2", tag: "0.38.0", title: nil, publishedAt: nil,
                         webURL: URL(string: "https://github.com/umputun/agterm/releases/tag/0.38.0"),
-                        isPrerelease: false),
+                        isPrerelease: false, bodyText: "- shipped notes"),
     ]
     // bump "0.39.1" from the tap log must find the upstream tag "v0.39.1".
     #expect(upstreamReleaseURL(matching: "0.39.1", in: releases)?.path.hasSuffix("/v0.39.1") == true)
@@ -363,7 +363,8 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
 /// Shape verified live 2026-10-30 against repos/umputun/agterm/releases.
 private let releasesJSON = """
 [
-  {"tag_name":"v0.39.1","name":"Version 0.39.1","published_at":"2026-10-30T06:13:39Z",
+  {"tag_name":"v0.39.1","name":"Version 0.39.1",
+   "body":"### Improved\\n\\n- the GUI `ask` dialog matches the box","published_at":"2026-10-30T06:13:39Z",
    "html_url":"https://github.com/umputun/agterm/releases/tag/v0.39.1","draft":false,"prerelease":false},
   {"tag_name":"v0.40.0-rc1","name":null,"published_at":"2026-10-29T06:00:00Z",
    "html_url":"https://github.com/umputun/agterm/releases/tag/v0.40.0-rc1","draft":false,"prerelease":true},
@@ -381,6 +382,24 @@ private let releasesJSON = """
     #expect(releases[0].publishedAt != nil)
     #expect(releases[1].isPrerelease)
     #expect(releases[1].title == nil) // null name → tag stands alone
+    // The releases-list payload carries `body` too (probed live 2026-10-30):
+    // the modal renders it without a second API call.
+    #expect(releases[0].bodyText?.hasPrefix("### Improved") == true)
+    #expect(releases[1].bodyText == nil) // no body key → no changelog button
+}
+
+@Test func decodeGitHubReleases_bodyTrimmedBlankBecomesNil() throws {
+    let json = """
+    [
+      {"tag_name":"v1","body":"  ## Notes\\n\\n- a  "},
+      {"tag_name":"v2","body":"   \\n "},
+      {"tag_name":"v3","body":null}
+    ]
+    """
+    let releases = try decodeGitHubReleases(Data(json.utf8))
+    #expect(releases[0].bodyText == "## Notes\n\n- a")
+    #expect(releases[1].bodyText == nil) // whitespace body is not a changelog
+    #expect(releases[2].bodyText == nil)
 }
 
 @Test func decodeGitHubReleases_rejectsNonArray() {

@@ -205,18 +205,23 @@ public struct UpstreamRelease: Identifiable, Hashable, Sendable {
     public let publishedAt: Date?
     public let webURL: URL?
     public let isPrerelease: Bool
+    /// Markdown release notes, straight from the releases-list payload (§21) —
+    /// no second API call. nil/empty when the author published a bodyless
+    /// release: the GUI shows no changelog button for those.
+    public let bodyText: String?
 }
 
 private struct GitHubRelease: Decodable {
     let tagName: String?
     let name: String?
+    let body: String?
     let publishedAt: String?
     let htmlUrl: String?
     let draft: Bool?
     let prerelease: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name", name, publishedAt = "published_at", htmlUrl = "html_url"
+        case tagName = "tag_name", name, body, publishedAt = "published_at", htmlUrl = "html_url"
         case draft, prerelease
     }
 }
@@ -236,7 +241,10 @@ public func decodeGitHubReleases(_ data: Data) throws -> [UpstreamRelease] {
             title: title,
             publishedAt: parseTimestamp(release.publishedAt),
             webURL: release.htmlUrl.flatMap(URL.init(string:)),
-            isPrerelease: release.prerelease == true)
+            isPrerelease: release.prerelease == true,
+            bodyText: release.body
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .flatMap { $0.isEmpty ? nil : $0 })
     }
 }
 
