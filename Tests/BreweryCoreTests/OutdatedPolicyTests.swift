@@ -28,6 +28,15 @@ private func manifest(_ json: String) throws -> PackageManifest {
     #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate)
 }
 
+@Test func outdated_installedNewerThanKnownLatestIsNotUpdateAvailable() throws {
+    // API regeneration lag or a tap shadowing a core name: installed is NEWER
+    // than the manifest's known latest. Must not render an arrow to the older version.
+    let item = makeItem(.formula, name: "ace", installed: ["8.1.2"])
+    let m = try manifest(#"{"formulae":{"ace":{"stable_version":"8.0.8"}},"casks":{}}"#)
+    #expect(outdatedState(item: item, manifest: m, greedy: false) == .upToDate)
+    #expect(outdatedState(item: item, manifest: m, greedy: true) == .upToDate)
+}
+
 @Test func outdated_tapPackageUnknownNotUpToDate() throws {
     let item = makeItem(.formula, name: "ralphex", installed: ["1.0.1"]) // tap pkg: absent from core manifest
     let m = try manifest(#"{"formulae":{},"casks":{}}"#)

@@ -2,8 +2,8 @@ import Foundation
 
 /// Decoded payload of https://formulae.brew.sh/api/internal/packages.<bottle_tag>.jws.json
 /// (core-only: no tap packages, no installed state — see compatibilities §23).
-public struct PackageManifest: Decodable {
-    public struct FormulaEntry: Decodable {
+public struct PackageManifest: Decodable, Sendable {
+    public struct FormulaEntry: Decodable, Sendable {
         public let stableVersion: String?
         public let desc: String?
         public let homepage: String?
@@ -56,7 +56,7 @@ public struct PackageManifest: Decodable {
         }
     }
 
-    public struct CaskEntry: Decodable {
+    public struct CaskEntry: Decodable, Sendable {
         public let version: String?
         public let tapString: String?
         public let name: String?

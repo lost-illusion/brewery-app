@@ -104,12 +104,20 @@ public final class InventoryModel {
             if jqAvailable {
                 listSnapshot = try ListSnapshot.decode(listRes.stdout)
             } else {
-                // brew needs jq to emit --json; without it the plain-text form is the fallback (§43)
+                // brew needs jq to emit --json; without it the plain-text form is the fallback (§43).
+                // Plain `list --versions` mixes cask rows in; fetch casks separately and split.
                 let rows = parseTextListVersions(String(decoding: listRes.stdout, as: UTF8.self))
+                let caskRes = try await runner.run(["list", "--cask", "--versions"])
+                let caskRows = caskRes.exitCode == 0
+                    ? parseTextListVersions(String(decoding: caskRes.stdout, as: UTF8.self)) : []
+                let caskNames = Set(caskRows.map(\.name))
                 listSnapshot = ListSnapshot(
-                    formulae: rows.map { ListSnapshot.FormulaItem(name: $0.name, versions: $0.versions,
-                                                                 linkedVersion: nil, optlinkedVersion: nil, pinnedVersion: nil) },
-                    casks: [])
+                    formulae: rows.filter { !caskNames.contains($0.name) }.map {
+                        ListSnapshot.FormulaItem(name: $0.name, versions: $0.versions,
+                                                 linkedVersion: nil, optlinkedVersion: nil, pinnedVersion: nil)
+                    },
+                    casks: caskRows.map { ListSnapshot.CaskItem(token: $0.name, versions: $0.versions,
+                                                                pinnedVersion: nil) })
             }
 
             // Publish list rows immediately — the UI shows inventory while info runs.
@@ -132,8 +140,11 @@ public final class InventoryModel {
             let bottleTag = infoSnapshot.formulae.compactMap(\.bottleTag).first
             var manifest: PackageManifest?
             if let bottleTag {
-                manifest = try? await manifestFetcher.fetch(bottleTag: bottleTag, now: now).manifest
-                versionDataAsOf = manifest != nil ? now : nil
+                // fetchedAt (not refresh time): a cached or stale-served manifest
+                // must show its real age in the footer (Freshness #1).
+                let manifestResult = try? await manifestFetcher.fetch(bottleTag: bottleTag, now: now)
+                manifest = manifestResult?.manifest
+                versionDataAsOf = manifestResult?.fetchedAt
             } else {
                 versionDataAsOf = nil // no info → no bottleTag → manifest step skipped
             }

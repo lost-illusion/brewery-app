@@ -33,5 +33,29 @@ public func outdatedState(item: BrewItem, manifest: PackageManifest?, greedy: Bo
         return .unknown
     }
     guard let installed = installedActive else { return .unknown }
-    return latest == installed ? .upToDate : .updateAvailable(latest: latest)
+    if latest == installed || installedIsNewer(installed, than: latest) {
+        // installed newer than known latest (API regeneration lag, tap shadowing
+        // a core name): brew says up to date — never arrow to an older version.
+        return .upToDate
+    }
+    return .updateAvailable(latest: latest)
+}
+
+/// Numeric-segment version compare (dot/underscore separated). False when either
+/// side has a non-numeric segment (comparable only where brew itself compares).
+private func installedIsNewer(_ installed: String, than latest: String) -> Bool {
+    guard let a = numericSegments(installed), let b = numericSegments(latest) else { return false }
+    for i in 0..<max(a.count, b.count) {
+        let x = i < a.count ? a[i] : 0
+        let y = i < b.count ? b[i] : 0
+        if x != y { return x > y }
+    }
+    return false
+}
+
+private func numericSegments(_ version: String) -> [Int]? {
+    let parts = version.split(whereSeparator: { $0 == "." || $0 == "_" })
+    var out: [Int] = []
+    for p in parts { guard let n = Int(p) else { return nil }; out.append(n) }
+    return out
 }

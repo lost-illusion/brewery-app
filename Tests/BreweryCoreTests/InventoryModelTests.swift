@@ -44,6 +44,14 @@ private struct FakeProbe: ExternalBrewProbing {
     func isBrewRunningExternally() -> Bool { running }
 }
 
+private struct FakeManifestFetcher: ManifestFetching {
+    let manifest: PackageManifest
+    let fetchedAt: Date
+    func fetch(bottleTag: String, now: Date) async throws -> ManifestFetchResult {
+        ManifestFetchResult(manifest: manifest, fetchedAt: fetchedAt)
+    }
+}
+
 private final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     let response: Data
     var calls: [URL] = []
@@ -63,16 +71,20 @@ private struct Harness {
 
 @MainActor
 private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
-                         listResult: BrewResult? = nil, gateInfo: Bool = false) throws -> Harness {
+                         listResult: BrewResult? = nil, gateInfo: Bool = false,
+                         extraResults: [String: BrewResult] = [:],
+                         manifestFetcher: ManifestFetching? = nil) throws -> Harness {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let runner = FakeRunner(results: [
+    var results: [String: BrewResult] = [
         "list --json --versions": listResult ?? ok(fixtureData("list.json")),
         "info --json=v2 --installed": ok(fixtureData("info.json")),
         "list --versions": ok(fixtureData("text-list-real.txt")),
-    ], gateInfo: gateInfo)
+    ]
+    results.merge(extraResults) { _, new in new }
+    let runner = FakeRunner(results: results, gateInfo: gateInfo)
     let http = FakeHTTP(response: fixtureData("manifest-mini.json"))
     let model = InventoryModel(runner: runner,
-                               manifestFetcher: ManifestFetcher(http: http,
+                               manifestFetcher: manifestFetcher ?? ManifestFetcher(http: http,
                                    cacheURL: dir.appendingPathComponent("manifest-cache.json")),
                                store: SnapshotStore(directory: dir),
                                brewProbe: FakeProbe(running: probeRunning),
@@ -82,6 +94,30 @@ private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
 }
 
 // MARK: - Tests
+
+@MainActor
+@Test func model_versionDataAsOfUsesManifestFetchedAt() async throws {
+    // The footer must show when the version data was really fetched — a manifest
+    // served from cache is NOT "as of now".
+    let older = Date(timeIntervalSince1970: 1_700_000_000)
+    let manifest = try PackageManifest.decode(jwsData: fixtureData("manifest-mini.json"))
+    let h = try makeHarness(manifestFetcher: FakeManifestFetcher(manifest: manifest, fetchedAt: older))
+    await h.model.refresh(reason: .manual)
+    #expect(h.model.versionDataAsOf == older)
+}
+
+@MainActor
+@Test func model_degradedTextFallbackRoutesCaskRows() async throws {
+    // brew list --versions includes casks; degraded (jq-missing) mode must fetch
+    // them as casks, not silently mislabel them as formulae.
+    let h = try makeHarness(jqAvailable: false, extraResults: [
+        "list --cask --versions": ok(Data("wireshark-app 4.6.9\n".utf8)),
+    ])
+    await h.model.refresh(reason: .manual)
+    let rows = h.model.items.filter { $0.name == "wireshark-app" }
+    #expect(rows.count == 1) // not duplicated as formula + cask
+    #expect(rows.first?.kind == .cask)
+}
 
 @Test @MainActor func model_manual_refresh_mergesAndAppliesPolicy() async throws {
     let h = try makeHarness()
@@ -144,7 +180,7 @@ private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
 @Test @MainActor func model_degradedTextFallbackWhenJqMissing() async throws {
     let h = try makeHarness(jqAvailable: false)
     await h.model.refresh(reason: .manual)
-    #expect(h.runner.calls == [["list", "--versions"]]) // no --json asked of brew when jq is missing
+    #expect(h.runner.calls == [["list", "--versions"], ["list", "--cask", "--versions"]]) // no --json asked of brew when jq is missing; casks fetched separately
     let ralphex = try #require(h.model.items.first { $0.name == "ralphex" })
     #expect(ralphex.sourceState == .listOnly(reason: InventoryMerger.listOnlyReason))
     #expect(h.model.state == .ready)

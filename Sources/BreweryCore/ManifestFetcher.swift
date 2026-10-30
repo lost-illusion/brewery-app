@@ -54,16 +54,24 @@ public struct ManifestFetcher: Sendable {
     /// Returns the cached manifest when it is fresh for this bottle tag;
     /// otherwise downloads, decodes, writes the cache, and returns fetchedAt = now.
     public func fetch(bottleTag: String, now: Date) async throws -> ManifestFetchResult {
-        if let cached = readCache(),
+        let cached = readCache()
+        if let cached,
            !Self.isStale(fetchedAt: cached.fetchedAt, now: now),
            cached.manifest.bottleTag == bottleTag {
             return cached
         }
-        let data = try await http.data(from: Self.endpointURL(bottleTag: bottleTag))
-        let manifest = try PackageManifest.decode(jwsData: data)
-        let result = ManifestFetchResult(manifest: manifest, fetchedAt: now)
-        writeCache(result, jws: data)
-        return result
+        do {
+            let data = try await http.data(from: Self.endpointURL(bottleTag: bottleTag))
+            let manifest = try PackageManifest.decode(jwsData: data)
+            let result = ManifestFetchResult(manifest: manifest, fetchedAt: now)
+            writeCache(result, jws: data)
+            return result
+        } catch {
+            // Offline / API failure: a stale last-good manifest beats no manifest at all
+            // (spec Freshness #1: "Offline: serve the last cached manifest").
+            if let cached, cached.manifest.bottleTag == bottleTag { return cached }
+            throw error
+        }
     }
 
     private struct CacheEnvelope: Codable {

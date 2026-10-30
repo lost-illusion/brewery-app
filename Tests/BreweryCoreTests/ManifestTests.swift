@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import BreweryCore
@@ -18,6 +19,36 @@ import Testing
     #expect(manifest.latestFormulaVersion("ace") == "8.1.1")
     #expect(manifest.latestCaskVersion("wireshark-app") == "4.7.0")
     #expect(manifest.bottleTag == "arm64_golden_gate")
+}
+
+@Test func manifest_fetchOfflineServesStaleCache() async throws {
+    // Spec Freshness #1: offline → serve the last cached manifest. The plan named
+    // this test (fetcher_offlineUsesCache); it was missing from Task 7.
+    let (fetcher, http) = try makeFetcher()
+    let now = Date()
+    _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now)
+    http.willThrow = true // Little Snitch / offline / API down
+    let offline = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now.addingTimeInterval(86_401))
+    #expect(offline.manifest.latestFormulaVersion("ace") == "8.0.8")
+    #expect(offline.fetchedAt == now) // the original fetch time, not "now"
+}
+
+@Test func manifest_fetchOfflineNoCacheThrows() async throws {
+    let (fetcher, http) = try makeFetcher()
+    http.willThrow = true
+    do {
+        _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: Date())
+        Issue.record("expected a throw when there is no cache to fall back on")
+    } catch is HTTPFailure {}
+}
+
+@MainActor
+@Test func manifest_fetchRunsOffMainActor() async throws {
+    // The manifest payload is ~16 MB; cache I/O + decode must not stall the UI.
+    let (fetcher, http) = try makeFetcher()
+    _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: Date())
+    #expect(!http.sawMainThread.isEmpty)
+    #expect(http.sawMainThread.allSatisfy { !$0 })
 }
 
 @Test func manifest_decode_licenseAsSPDXObject() throws {
@@ -78,12 +109,18 @@ import Testing
     #expect(http.calls.count == 2)
 }
 
+private struct HTTPFailure: Error {}
+
 private final class FakeHTTP: HTTPFetching, @unchecked Sendable {
     var calls: [URL] = []
+    var willThrow = false
+    var sawMainThread: [Bool] = []
     let response: Data
     init(response: Data) { self.response = response }
     func data(from url: URL) async throws -> Data {
         calls.append(url)
+        sawMainThread.append(pthread_main_np() != 0) // Thread.isMainThread is banned in async contexts
+        if willThrow { throw HTTPFailure() }
         return response
     }
 }
