@@ -9,6 +9,10 @@ struct PackageDetail: View {
     let bottleTag: String?
     let openPackage: (String) -> Void
 
+    @Environment(AppState.self) private var app
+    @AppStorage(AppState.changelogSourceKey) private var changelogSource: ChangelogSource = .off
+    @State private var showAllCommits = false
+
     var body: some View {
         if let item {
             ScrollView {
@@ -57,9 +61,17 @@ struct PackageDetail: View {
                             }
                         }
                     }
+                    if changelogSource != .off {
+                        versionHistorySection(item)
+                    }
                     HStack(spacing: 10) {
                         if let homepage = item.homepage, let url = URL(string: homepage) {
                             Button("Open homepage") { NSWorkspace.shared.open(url) }
+                        }
+                        // Best-effort (§21): homepage is a github.com repo → its
+                        // releases page; non-GitHub upstreams keep the homepage link.
+                        if let notes = releaseNotesURL(for: item) {
+                            Button("Release notes") { NSWorkspace.shared.open(notes) }
                         }
                         if let brewPage = brewPageURL(for: item) {
                             Button("Open brew page") { NSWorkspace.shared.open(brewPage) }
@@ -68,6 +80,17 @@ struct PackageDetail: View {
                 }
                 .padding(16)
                 .frame(maxWidth: 560, alignment: .leading)
+                // Combined key: re-fires on package switch and on a settings
+                // flip while the same package stays selected.
+                .task(id: "\(item.id)|\(changelogSource.rawValue)") {
+                    guard changelogSource != .off else { return }
+                    // Tap routes need the lazily loaded tap list before routing.
+                    if historyRouteNeedsTaps(for: item), model.tapsState != .ready {
+                        await model.loadTaps()
+                    }
+                    await app.versionHistory.load(for: item, taps: model.taps)
+                }
+                .onChange(of: item.id) { _, _ in showAllCommits = false }
             }
         } else {
             ContentUnavailableView("Select a package", systemImage: "sidebar.right",
@@ -204,6 +227,104 @@ struct PackageDetail: View {
         GridRow {
             Text(label).foregroundStyle(.secondary)
             Text(value).textSelection(.enabled)
+        }
+    }
+
+    // MARK: - Version history (§21)
+
+    private func versionHistorySection(_ item: BrewItem) -> some View {
+        GroupBox {
+            switch app.versionHistory.status(for: item) {
+            case .idle, .loading:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading version history…").font(.callout).foregroundStyle(.secondary)
+                }
+            case .loaded(let entries, let origin, let fetchedAt):
+                loadedHistory(item, entries: entries, origin: origin, fetchedAt: fetchedAt)
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .textSelection(.enabled)
+                    Button("Try again") {
+                        Task { await app.versionHistory.load(for: item, taps: model.taps, force: true) }
+                    }
+                }
+            }
+        } label: {
+            HStack {
+                Text("Version history")
+                Spacer()
+                if case .loaded = app.versionHistory.status(for: item) {
+                    Button("Reload") {
+                        Task { await app.versionHistory.load(for: item, taps: model.taps, force: true) }
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+    }
+
+    /// Default view: version bumps only, when the source produced any
+    /// (tap-author subjects are format-free, so a tap with zero recognized
+    /// bumps shows its full log instead of an empty box).
+    private func loadedHistory(_ item: BrewItem, entries: [VersionHistoryEntry],
+                               origin: String, fetchedAt: Date) -> some View {
+        let bumps = entries.filter { $0.versionBump != nil }
+        let shown = showAllCommits || bumps.isEmpty ? entries : bumps
+        return VStack(alignment: .leading, spacing: 8) {
+            if entries.isEmpty {
+                Text("No commits found — \(origin).")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(shown) { entry in historyRow(entry) }
+                if !showAllCommits, bumps.count < entries.count {
+                    Toggle("Show all \(entries.count) packaging commits (\(entries.count - bumps.count) hidden)",
+                           isOn: $showAllCommits)
+                        .font(.caption)
+                }
+            }
+            Text("\(origin) · fetched \(fetchedAt.formatted(date: .omitted, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func historyRow(_ entry: VersionHistoryEntry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Group {
+                if let date = entry.date {
+                    Text(date, format: .relative(presentation: .named))
+                } else {
+                    Text("—")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 86, alignment: .trailing)
+            if let version = entry.versionBump {
+                Text(version)
+                    .font(.callout.bold())
+                    .foregroundStyle(.tint)
+                    .help(entry.subject) // full commit subject on hover
+            } else {
+                Text(entry.subject)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let url = entry.webURL {
+                Button { NSWorkspace.shared.open(url) } label: {
+                    Image(systemName: "arrow.up.right.square")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .help("Open commit on GitHub")
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ final class AppState {
     let jqAvailable: Bool
     let brewFound: Bool
     let changelogDiagnostics: ChangelogDiagnostics
+    let versionHistory: VersionHistoryModel
 
     init(defaults: UserDefaults = .standard) {
         let brewURL = discoverBrew(searchPaths: Self.brewSearchPaths,
@@ -34,6 +35,18 @@ final class AppState {
             settings: settings)
         changelogDiagnostics = ChangelogDiagnostics(exec: ProcessExecRunner(),
                                                     tokenChecker: GitHubAPITokenChecker())
+
+        // Same discovery as the settings diagnostics; a missing binary surfaces
+        // as the diagnostic's own fix wording at fetch time.
+        let isTool: @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        let gitURL = ChangelogDiagnostics.defaultGitSearchPaths.first(where: isTool).map { URL(fileURLWithPath: $0) }
+        let ghURL = ChangelogDiagnostics.defaultGhSearchPaths.first(where: isTool).map { URL(fileURLWithPath: $0) }
+        var historyAccess = VersionHistoryFetcher.Access()
+        historyAccess.source = ChangelogSource(rawValue: defaults.string(forKey: Self.changelogSourceKey) ?? "") ?? .off
+        historyAccess.token = defaults.string(forKey: Self.githubTokenKey) ?? ""
+        versionHistory = VersionHistoryModel(fetcher: VersionHistoryFetcher(
+            access: historyAccess, gitURL: gitURL, ghURL: ghURL,
+            exec: ProcessExecRunner(), github: LiveGitHubJSON()))
     }
 
     static func detectJq() -> Bool {

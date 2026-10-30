@@ -61,6 +61,7 @@ private struct ChangelogSettingsPane: View {
             }
             .onChange(of: source) { _, newValue in
                 if newValue == .off { sourceOutcome = nil }
+                app.versionHistory.configure(source: newValue, token: token)
             }
 
             switch source {
@@ -71,7 +72,10 @@ private struct ChangelogSettingsPane: View {
             case .token:
                 SecureField("Personal access token", text: $token, prompt: Text("ghp_… / github_pat_…"))
                     .font(.body.monospaced())
-                    .onChange(of: token) { _, _ in sourceOutcome = nil }
+                    .onChange(of: token) { _, newToken in
+                        sourceOutcome = nil
+                        app.versionHistory.configure(source: source, token: newToken)
+                    }
                 Text("The token is stored in this app's preferences (plain text) and sent only to api.github.com. brew honors the same idea via HOMEBREW_GITHUB_API_TOKEN.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

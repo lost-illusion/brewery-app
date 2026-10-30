@@ -3,7 +3,7 @@ import Foundation
 /// How a future changelog feature reaches GitHub (§21):
 /// no changelog, a user-supplied REST token, or shelling out to an already
 /// signed-in `gh` (its own auth, no token in the app).
-public enum ChangelogSource: String, CaseIterable, Identifiable {
+public enum ChangelogSource: String, CaseIterable, Identifiable, Sendable {
     case off, token, ghCLI
 
     public var id: String { rawValue }
