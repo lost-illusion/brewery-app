@@ -11,6 +11,12 @@ struct PackageDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(item)
+                    if let desc = item.desc, !desc.isEmpty {
+                        Text(desc)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                     if case .listOnly(let reason) = item.sourceState {
                         Label(reason, systemImage: "questionmark.circle")
                             .foregroundStyle(.orange)
