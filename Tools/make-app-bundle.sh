@@ -6,11 +6,13 @@ set -eu
 cd "$(dirname "$0")/.."
 
 swift build -c release
+sh Tools/make-icon.sh
 
 APP=build/Brewery.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/BreweryApp "$APP/Contents/MacOS/Brewery"
+cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -22,6 +24,7 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleExecutable</key>        <string>Brewery</string>
     <key>CFBundleIdentifier</key>        <string>com.illusion.brewery</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>
+    <key>CFBundleIconFile</key>          <string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key>           <string>1</string>
     <key>LSMinimumSystemVersion</key>    <string>26.0</string>
