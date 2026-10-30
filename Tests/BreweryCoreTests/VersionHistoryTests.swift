@@ -177,9 +177,31 @@ private enum TapInfoDecoderStub {
     #expect(entries.count == 2)
     #expect(entries[0].id == "c0665f6c")
     #expect(entries[0].versionBump == "0.39.1")
-    #expect(entries[0].webURL == nil) // local commits have no GitHub page
+    #expect(entries[0].webURL == nil) // no commitBase: linkless rows
     #expect(entries[1].versionBump == nil)
     #expect(entries[0].date != nil) // iso-strict with a numeric offset parses
+}
+
+@Test func decodeTapGitLog_commitBaseLinksEachSha() {
+    let s = gitFieldSeparator
+    let text = "c0665f6c\(s)2026-10-30T01:13:44-05:00\(s)agterm 0.39.1"
+    let entries = decodeTapGitLog(text, name: "agterm",
+                                  commitBase: "https://github.com/umputun/homebrew-apps/commit/")
+    #expect(entries[0].webURL?.absoluteString == "https://github.com/umputun/homebrew-apps/commit/c0665f6c")
+}
+
+@Test func githubRepoFromGitRemote_acceptedForms() {
+    func pair(_ s: String) -> [String] {
+        guard let r = githubRepoFromGitRemote(s) else { return [] }
+        return [r.owner, r.repo]
+    }
+    #expect(pair("https://github.com/umputun/homebrew-apps.git\n") == ["umputun", "homebrew-apps"])
+    #expect(pair("git@github.com:umputun/homebrew-apps.git") == ["umputun", "homebrew-apps"])
+    #expect(pair("ssh://git@github.com/acme/homebrew-tools") == ["acme", "homebrew-tools"])
+    #expect(pair("https://github.com/acme/tari") == ["acme", "tari"])
+    #expect(pair("https://gitlab.com/acme/tap.git") == [])
+    #expect(pair("") == [])
+    #expect(pair("https://github.com/onlyowner") == [])
 }
 
 // MARK: - Fetcher
@@ -263,11 +285,44 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
     let route = HistoryRoute.tapGit(tapDirectory: "/tap", file: "Formula/tool.rb")
     let args = ["-C", "/tap", "log", "--max-count=30", "--date=iso-strict",
                 "--pretty=format:%H\(s)%ad\(s)%s", "--", "Formula/tool.rb"]
-    let exec = ScriptedExec(results: ["/fake/git " + args.joined(separator: " "): brewOK("aaa\(s)2026-01-01T00:00:00Z\(s)tool 1.0")])
+    let logKey = "/fake/git " + args.joined(separator: " ")
+    // Non-GitHub origin: the history loads, but no commit links are invented.
+    let remoteKey = "/fake/git -C /tap remote get-url origin"
+    let exec = ScriptedExec(results: [logKey: brewOK("aaa\(s)2026-01-01T00:00:00Z\(s)tool 1.0"),
+                                      remoteKey: brewOK("https://gitlab.com/acme/tap.git")])
     let f = fetcher(access: .init(), exec: exec) // source .off: tap git needs no GitHub source
     let entries = try await f.fetch(route: route, name: "tool")
     #expect(entries.first?.versionBump == "1.0")
-    #expect(exec.calls == ["/fake/git " + args.joined(separator: " ")])
+    #expect(entries.first?.webURL == nil)
+    #expect(exec.calls == [logKey, remoteKey])
+}
+
+@Test func fetch_tapGitLinksCommitsViaGithubOrigin() async throws {
+    let s = gitFieldSeparator
+    let route = HistoryRoute.tapGit(tapDirectory: "/tap", file: "Casks/agterm.rb")
+    let args = ["-C", "/tap", "log", "--max-count=30", "--date=iso-strict",
+                "--pretty=format:%H\(s)%ad\(s)%s", "--", "Casks/agterm.rb"]
+    let exec = ScriptedExec(results: [
+        "/fake/git " + args.joined(separator: " "): brewOK("aaa\(s)2026-01-01T00:00:00Z\(s)agterm 0.39.1"),
+        "/fake/git -C /tap remote get-url origin": brewOK("git@github.com:umputun/homebrew-apps.git"),
+    ])
+    let f = fetcher(access: .init(), exec: exec)
+    let entries = try await f.fetch(route: route, name: "agterm")
+    #expect(entries.first?.webURL?.absoluteString == "https://github.com/umputun/homebrew-apps/commit/aaa")
+}
+
+@Test func fetch_tapGitToleratesMissingRemote() async throws {
+    let s = gitFieldSeparator
+    let route = HistoryRoute.tapGit(tapDirectory: "/tap", file: "Formula/tool.rb")
+    let args = ["-C", "/tap", "log", "--max-count=30", "--date=iso-strict",
+                "--pretty=format:%H\(s)%ad\(s)%s", "--", "Formula/tool.rb"]
+    // Only the log scripted: the remote probe comes back unscripted (exit 1)
+    // and must not sink the history — linkless rows instead.
+    let exec = ScriptedExec(results: ["/fake/git " + args.joined(separator: " "): brewOK("aaa\(s)2026-01-01T00:00:00Z\(s)tool 1.0")])
+    let f = fetcher(access: .init(), exec: exec)
+    let entries = try await f.fetch(route: route, name: "tool")
+    #expect(entries.first?.versionBump == "1.0")
+    #expect(entries.first?.webURL == nil)
 }
 
 @Test func fetch_tapGitWhenGitMissingNamesCLT() async {
@@ -285,6 +340,21 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
 }
 
 // MARK: - Upstream releases
+
+@Test func upstreamReleaseURL_matchesBumpIgnoringLeadingV() {
+    let releases = [
+        UpstreamRelease(id: "u1", tag: "v0.39.1", title: nil, publishedAt: nil,
+                        webURL: URL(string: "https://github.com/umputun/agterm/releases/tag/v0.39.1"),
+                        isPrerelease: false),
+        UpstreamRelease(id: "u2", tag: "0.38.0", title: nil, publishedAt: nil,
+                        webURL: URL(string: "https://github.com/umputun/agterm/releases/tag/0.38.0"),
+                        isPrerelease: false),
+    ]
+    // bump "0.39.1" from the tap log must find the upstream tag "v0.39.1".
+    #expect(upstreamReleaseURL(matching: "0.39.1", in: releases)?.path.hasSuffix("/v0.39.1") == true)
+    #expect(upstreamReleaseURL(matching: "0.38.0", in: releases)?.path.hasSuffix("/0.38.0") == true)
+    #expect(upstreamReleaseURL(matching: "9.9.9", in: releases) == nil)
+}
 
 /// Shape verified live 2026-10-30 against repos/umputun/agterm/releases.
 private let releasesJSON = """

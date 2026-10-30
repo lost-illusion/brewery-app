@@ -146,7 +146,9 @@ public func decodeGitHubCommits(_ data: Data, name: String) throws -> [VersionHi
 /// separated by unit-separator (0x1F).
 public let gitFieldSeparator = "\u{1F}"
 
-public func decodeTapGitLog(_ text: String, name: String) -> [VersionHistoryEntry] {
+/// `commitBase` (e.g. "https://github.com/umputun/homebrew-apps/commit/") turns
+/// tap rows into links to the packaging commit; nil leaves them linkless.
+public func decodeTapGitLog(_ text: String, name: String, commitBase: String? = nil) -> [VersionHistoryEntry] {
     text.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
         let fields = line.split(separator: Character(gitFieldSeparator), omittingEmptySubsequences: false).map(String.init)
         guard fields.count >= 3, let sha = fields.first, !sha.isEmpty else { return nil }
@@ -156,8 +158,26 @@ public func decodeTapGitLog(_ text: String, name: String) -> [VersionHistoryEntr
             subject: subject,
             date: parseTimestamp(fields[1]),
             versionBump: versionBump(in: subject, name: name),
-            webURL: nil)
+            webURL: commitBase.flatMap { URL(string: "\($0)\(sha)") })
     }
+}
+
+/// GitHub owner/repo from a `git remote get-url origin` string — https,
+/// scp-style (`git@github.com:owner/repo.git`) and ssh:// forms, `.git` suffix
+/// tolerated. Anything not on github.com → nil (tap on a forge we won't link).
+public func githubRepoFromGitRemote(_ raw: String) -> (owner: String, repo: String)? {
+    let url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    let rest: String
+    if url.hasPrefix("https://github.com/") { rest = String(url.dropFirst("https://github.com/".count)) }
+    else if url.hasPrefix("ssh://git@github.com/") { rest = String(url.dropFirst("ssh://git@github.com/".count)) }
+    else if url.hasPrefix("git@github.com:") { rest = String(url.dropFirst("git@github.com:".count)) }
+    else { return nil }
+    let parts = rest.split(separator: "/").map(String.init)
+    guard parts.count >= 2 else { return nil }
+    var repo = parts[1]
+    if repo.lowercased().hasSuffix(".git") { repo = String(repo.dropLast(4)) }
+    guard !parts[0].isEmpty, !repo.isEmpty else { return nil }
+    return (parts[0], repo)
 }
 
 /// GitHub ("2026-09-22T12:34:43Z") parses with .withInternetDateTime; git
@@ -240,6 +260,19 @@ public func upstreamGitHubRepo(homepage: String?) -> (owner: String, repo: Strin
     if repo.hasSuffix(".git") { repo = String(repo.dropLast(4)) }
     guard !owner.isEmpty, !repo.isEmpty else { return nil }
     return (owner, repo)
+}
+
+/// The changelog a version-bump row should open: the upstream GitHub release
+/// whose tag names this version — leading "v" tolerated on either side
+/// (agterm releases are `0.39.1`, many upstreams publish `v0.39.1`).
+public func upstreamReleaseURL(matching version: String, in releases: [UpstreamRelease]) -> URL? {
+    func normalize(_ s: String) -> String {
+        let lower = s.lowercased()
+        return lower.hasPrefix("v") ? String(lower.dropFirst()) : lower
+    }
+    let target = normalize(version)
+    guard !target.isEmpty else { return nil }
+    return releases.first { normalize($0.tag) == target }?.webURL
 }
 
 public func releaseNotesURL(for item: BrewItem) -> URL? {
@@ -372,7 +405,16 @@ public struct VersionHistoryFetcher: Sendable {
             guard result.exitCode == 0 else {
                 throw VersionHistoryError(message: Self.commandFailure(result, fallback: "git log failed (exit \(result.exitCode))."))
             }
-            return decodeTapGitLog(String(decoding: result.stdout, as: UTF8.self), name: name)
+            // Best-effort second git call: the tap's origin names the GitHub repo
+            // hosting these commits, so tap rows get commit links too. Any
+            // failure (no remote, non-GitHub tap) just means no links — the
+            // history itself stands on the log call.
+            var commitBase: String?
+            let remote = try await exec.run(git, ["-C", directory, "remote", "get-url", "origin"])
+            if remote.exitCode == 0, let repo = githubRepoFromGitRemote(String(decoding: remote.stdout, as: UTF8.self)) {
+                commitBase = "https://github.com/\(repo.owner)/\(repo.repo)/commit/"
+            }
+            return decodeTapGitLog(String(decoding: result.stdout, as: UTF8.self), name: name, commitBase: commitBase)
 
         case .unsupported(let reason):
             throw VersionHistoryError(message: reason)

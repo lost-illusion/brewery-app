@@ -12,6 +12,7 @@ struct PackageDetail: View {
     @Environment(AppState.self) private var app
     @AppStorage(AppState.changelogSourceKey) private var changelogSource: ChangelogSource = .off
     @State private var showAllCommits = false
+    @State private var visibleCommits = 10
 
     var body: some View {
         if let item {
@@ -97,7 +98,10 @@ struct PackageDetail: View {
                     await app.versionHistory.load(for: item, taps: model.taps)
                     await app.versionHistory.loadReleases(for: item)
                 }
-                .onChange(of: item.id) { _, _ in showAllCommits = false }
+                .onChange(of: item.id) { _, _ in
+                    showAllCommits = false
+                    visibleCommits = 10
+                }
             }
         } else {
             ContentUnavailableView("Select a package", systemImage: "sidebar.right",
@@ -274,20 +278,26 @@ struct PackageDetail: View {
         }
     }
 
-    /// Default view: version bumps only, when the source produced any
-    /// (tap-author subjects are format-free, so a tap with zero recognized
-    /// bumps shows its full log instead of an empty box).
+    /// Default view: version bumps only (10 most recent), when the source
+    /// produced any (tap-author subjects are format-free, so a tap with zero
+    /// recognized bumps shows its full log instead of an empty box). "Show 10
+    /// more" pages through the already-fetched list; no refetch.
     private func loadedHistory(_ item: BrewItem, entries: [VersionHistoryEntry],
                                origin: String, fetchedAt: Date) -> some View {
         let bumps = entries.filter { $0.versionBump != nil }
-        let shown = showAllCommits || bumps.isEmpty ? entries : bumps
+        let candidates = showAllCommits || bumps.isEmpty ? entries : bumps
+        let shown = Array(candidates.prefix(visibleCommits))
         return VStack(alignment: .leading, spacing: 8) {
             if entries.isEmpty {
                 Text("No commits found — \(origin).")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(shown) { entry in historyRow(entry) }
+                ForEach(shown) { entry in historyRow(item, entry) }
+                if candidates.count > visibleCommits {
+                    Button("Show 10 more") { visibleCommits += 10 }
+                        .font(.callout)
+                }
                 if !showAllCommits, bumps.count < entries.count {
                     Toggle("Show all \(entries.count) packaging commits (\(entries.count - bumps.count) hidden)",
                            isOn: $showAllCommits)
@@ -300,8 +310,22 @@ struct PackageDetail: View {
         }
     }
 
-    private func historyRow(_ entry: VersionHistoryEntry) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+    /// Bump rows are the changelog entry points: the version opens the matching
+    /// upstream GitHub release (real change notes, when loaded), falling back
+    /// to the packaging commit (core commit page or tap commit via the tap's
+    /// git origin); the trailing arrow always goes to the commit. The row for
+    /// the installed version carries an "installed" chip.
+    private func historyRow(_ item: BrewItem, _ entry: VersionHistoryEntry) -> some View {
+        let releaseURL: URL? = {
+            guard let bump = entry.versionBump else { return nil }
+            if case .loaded(let releases) = app.versionHistory.releaseStatus(for: item) {
+                return upstreamReleaseURL(matching: bump, in: releases)
+            }
+            return nil
+        }()
+        let linkURL = releaseURL ?? entry.webURL
+        let isInstalledRow = entry.versionBump.map { item.installedVersions.contains($0) } ?? false
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Group {
                 if let date = entry.date {
                     Text(date, format: .relative(presentation: .named))
@@ -313,10 +337,28 @@ struct PackageDetail: View {
             .foregroundStyle(.secondary)
             .frame(width: 86, alignment: .trailing)
             if let version = entry.versionBump {
-                Text(version)
-                    .font(.callout.bold())
-                    .foregroundStyle(.tint)
-                    .help(entry.subject) // full commit subject on hover
+                if let url = linkURL {
+                    Button { NSWorkspace.shared.open(url) } label: { Text(version) }
+                        .buttonStyle(.plain)
+                        .font(.callout.bold())
+                        .foregroundStyle(.tint)
+                        .help(releaseURL != nil
+                              ? "Open \(version) release notes on GitHub"
+                              : entry.subject)
+                } else {
+                    Text(version)
+                        .font(.callout.bold())
+                        .foregroundStyle(.tint)
+                        .help(entry.subject) // full commit subject on hover
+                    }
+                if isInstalledRow {
+                    Text("installed")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.green.opacity(0.15), in: Capsule())
+                }
             } else {
                 Text(entry.subject)
                     .font(.callout)
