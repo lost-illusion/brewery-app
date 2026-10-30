@@ -19,21 +19,23 @@ struct Sidebar: View {
     }
 
     private var footer: some View {
-        HStack {
-            Text(footerText)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-            Spacer()
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(footerLines, id: \.self) { line in
+                Text(line)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
 
-    private var footerText: String {
-        func clock(_ date: Date?) -> String {
-            date.map { $0.formatted(date: .omitted, time: .shortened) } ?? "—"
-        }
-        if model.inventoryUpdated == nil && model.versionDataAsOf == nil { return "not refreshed yet" }
-        return "Updated \(clock(model.inventoryUpdated)) · Version data as of \(clock(model.versionDataAsOf))"
+    private var footerLines: [String] {
+        func clock(_ date: Date) -> String { date.formatted(date: .omitted, time: .shortened) }
+        var lines: [String] = []
+        if let updated = model.inventoryUpdated { lines.append("Updated \(clock(updated))") }
+        if let asOf = model.versionDataAsOf { lines.append("Version data as of \(clock(asOf))") }
+        return lines.isEmpty ? ["not refreshed yet"] : lines
     }
 }

@@ -23,8 +23,13 @@ struct PackageDetail: View {
                                 .textSelection(.enabled)
                         }
                     }
-                    if let homepage = item.homepage, let url = URL(string: homepage) {
-                        Button("Open homepage") { NSWorkspace.shared.open(url) }
+                    HStack(spacing: 10) {
+                        if let homepage = item.homepage, let url = URL(string: homepage) {
+                            Button("Open homepage") { NSWorkspace.shared.open(url) }
+                        }
+                        if let brewPage = brewPageURL(for: item) {
+                            Button("Open brew page") { NSWorkspace.shared.open(brewPage) }
+                        }
                     }
                 }
                 .padding(16)
