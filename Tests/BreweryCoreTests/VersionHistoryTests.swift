@@ -354,6 +354,10 @@ private func fetcher(access: VersionHistoryFetcher.Access, gitURL: URL? = URL(fi
     #expect(upstreamReleaseURL(matching: "0.39.1", in: releases)?.path.hasSuffix("/v0.39.1") == true)
     #expect(upstreamReleaseURL(matching: "0.38.0", in: releases)?.path.hasSuffix("/0.38.0") == true)
     #expect(upstreamReleaseURL(matching: "9.9.9", in: releases) == nil)
+    // The merged detail list needs the release itself (title/pre-release),
+    // not just the URL; unmatched versions stay nil so they get their own row.
+    #expect(upstreamRelease(matching: "0.39.1", in: releases)?.tag == "v0.39.1")
+    #expect(upstreamRelease(matching: "9.9.9", in: releases) == nil)
 }
 
 /// Shape verified live 2026-10-30 against repos/umputun/agterm/releases.

@@ -262,17 +262,23 @@ public func upstreamGitHubRepo(homepage: String?) -> (owner: String, repo: Strin
     return (owner, repo)
 }
 
-/// The changelog a version-bump row should open: the upstream GitHub release
-/// whose tag names this version — leading "v" tolerated on either side
-/// (agterm releases are `0.39.1`, many upstreams publish `v0.39.1`).
-public func upstreamReleaseURL(matching version: String, in releases: [UpstreamRelease]) -> URL? {
+/// The upstream GitHub release whose tag names this version — leading "v"
+/// tolerated on either side (agterm releases are `0.39.1`, many upstreams
+/// publish `v0.39.1`). The GUI merges a match into the packaging row instead
+/// of listing it separately.
+public func upstreamRelease(matching version: String, in releases: [UpstreamRelease]) -> UpstreamRelease? {
     func normalize(_ s: String) -> String {
         let lower = s.lowercased()
         return lower.hasPrefix("v") ? String(lower.dropFirst()) : lower
     }
     let target = normalize(version)
     guard !target.isEmpty else { return nil }
-    return releases.first { normalize($0.tag) == target }?.webURL
+    return releases.first { normalize($0.tag) == target }
+}
+
+/// The changelog a version-bump row should open.
+public func upstreamReleaseURL(matching version: String, in releases: [UpstreamRelease]) -> URL? {
+    upstreamRelease(matching: version, in: releases)?.webURL
 }
 
 public func releaseNotesURL(for item: BrewItem) -> URL? {

@@ -63,13 +63,10 @@ struct PackageDetail: View {
                         }
                     }
                     if changelogSource != .off {
+                        // One merged list: packaging bumps carry their upstream
+                        // release's title/pre-release chip; releases with no
+                        // matching bump appear as "not packaged" rows.
                         versionHistorySection(item)
-                        // Inline upstream releases when the homepage names a
-                        // GitHub repo (agterm → umputun/agterm); rows open the
-                        // release page, the header opens the whole releases list.
-                        if upstreamGitHubRepo(homepage: item.homepage) != nil {
-                            releasesSection(item)
-                        }
                     }
                     HStack(spacing: 10) {
                         if let homepage = item.homepage, let url = URL(string: homepage) {
@@ -265,6 +262,11 @@ struct PackageDetail: View {
                     Button("Try again") {
                         Task { await app.versionHistory.load(for: item, taps: model.taps, force: true) }
                     }
+                    // Releases fetch independently of the history fetch, so
+                    // upstream rows still show when packaging history fails.
+                    ForEach(loadedReleases(for: item)) { release in
+                        releaseRow(release)
+                    }
                 }
             }
         } label: {
@@ -277,35 +279,81 @@ struct PackageDetail: View {
                     }
                     .font(.callout)
                 }
+                if let notes = releaseNotesURL(for: item) {
+                    Button("All releases in browser") { NSWorkspace.shared.open(notes) }
+                        .font(.callout)
+                }
             }
         }
     }
 
-    /// Default view: version bumps only (10 most recent), when the source
-    /// produced any (tap-author subjects are format-free, so a tap with zero
-    /// recognized bumps shows its full log instead of an empty box). "Show 10
-    /// more" pages through the already-fetched list; no refetch.
+    private func loadedReleases(for item: BrewItem) -> [UpstreamRelease] {
+        if case .loaded(let releases) = app.versionHistory.releaseStatus(for: item) { return releases }
+        return []
+    }
+
+    /// Default view: version bumps plus upstream releases that have no
+    /// matching bump yet (10 most recent, newest-first across both sources).
+    /// A release whose tag names a bump version merges into that bump's row
+    /// (see historyRow); only the leftovers become their own "not packaged"
+    /// rows. When the source produced zero recognized bumps (tap-author
+    /// subjects are format-free) the full log shows instead of an empty box.
+    /// "Show 10 more" pages through the already-fetched list; no refetch.
     private func loadedHistory(_ item: BrewItem, entries: [VersionHistoryEntry],
                                origin: String, fetchedAt: Date) -> some View {
+        enum Row: Identifiable {
+            case commit(VersionHistoryEntry)
+            case release(UpstreamRelease)
+            var id: String {
+                switch self {
+                case .commit(let entry): return "commit:" + entry.id
+                case .release(let release): return "release:" + release.id
+                }
+            }
+            var sortDate: Date? {
+                switch self {
+                case .commit(let entry): return entry.date
+                case .release(let release): return release.publishedAt
+                }
+            }
+        }
         let bumps = entries.filter { $0.versionBump != nil }
         let candidates = showAllCommits || bumps.isEmpty ? entries : bumps
-        let shown = Array(candidates.prefix(visibleCommits))
+        let packaged = bumps.compactMap(\.versionBump)
+        let unpackaged = loadedReleases(for: item).filter { release in
+            !packaged.contains { upstreamRelease(matching: $0, in: [release]) != nil }
+        }
+        // Stable newest-first merge: ties keep each source's own order.
+        var rows: [Row] = candidates.map(Row.commit)
+        rows.append(contentsOf: unpackaged.map(Row.release))
+        rows = rows.enumerated().sorted { a, b in
+            let da = a.element.sortDate ?? .distantPast
+            let db = b.element.sortDate ?? .distantPast
+            return da == db ? a.offset < b.offset : da > db
+        }.map(\.element)
+        let shown = Array(rows.prefix(visibleCommits))
         return VStack(alignment: .leading, spacing: 8) {
             if entries.isEmpty {
                 Text("No commits found — \(origin).")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-            } else {
-                ForEach(shown) { entry in historyRow(item, entry) }
-                if candidates.count > visibleCommits {
-                    Button("Show 10 more") { visibleCommits += 10 }
-                        .font(.callout)
+            }
+            ForEach(shown) { row in
+                switch row {
+                case .commit(let entry):
+                    historyRow(item, entry)
+                case .release(let release):
+                    releaseRow(release, notPackaged: true)
                 }
-                if !showAllCommits, bumps.count < entries.count {
-                    Toggle("Show all \(entries.count) packaging commits (\(entries.count - bumps.count) hidden)",
-                           isOn: $showAllCommits)
-                        .font(.caption)
-                }
+            }
+            if rows.count > visibleCommits {
+                Button("Show 10 more") { visibleCommits += 10 }
+                    .font(.callout)
+            }
+            if !showAllCommits, bumps.count < entries.count {
+                Toggle("Show all \(entries.count) packaging commits (\(entries.count - bumps.count) hidden)",
+                       isOn: $showAllCommits)
+                    .font(.caption)
             }
             Text("\(origin) · fetched \(fetchedAt.formatted(date: .omitted, time: .shortened))")
                 .font(.caption)
@@ -316,16 +364,16 @@ struct PackageDetail: View {
     /// Bump rows are the changelog entry points: the version opens the matching
     /// upstream GitHub release (real change notes, when loaded), falling back
     /// to the packaging commit (core commit page or tap commit via the tap's
-    /// git origin); the trailing arrow always goes to the commit. The row for
+    /// git origin); the trailing arrow always goes to the commit. A matched
+    /// release merges its title and pre-release flag into the row — this is
+    /// where the old "Upstream releases" section's data now lives. The row for
     /// the installed version carries an "installed" chip.
     private func historyRow(_ item: BrewItem, _ entry: VersionHistoryEntry) -> some View {
-        let releaseURL: URL? = {
+        let matched: UpstreamRelease? = {
             guard let bump = entry.versionBump else { return nil }
-            if case .loaded(let releases) = app.versionHistory.releaseStatus(for: item) {
-                return upstreamReleaseURL(matching: bump, in: releases)
-            }
-            return nil
+            return upstreamRelease(matching: bump, in: loadedReleases(for: item))
         }()
+        let releaseURL = matched?.webURL
         let linkURL = releaseURL ?? entry.webURL
         let isInstalledRow = entry.versionBump.map { item.installedVersions.contains($0) } ?? false
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -362,6 +410,12 @@ struct PackageDetail: View {
                         .padding(.vertical, 1)
                         .background(.green.opacity(0.15), in: Capsule())
                 }
+                if matched?.isPrerelease == true {
+                    Text("pre-release").font(.caption).foregroundStyle(.orange)
+                }
+                if let title = matched?.title, title.distinctFrom(version) {
+                    Text(title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }
             } else {
                 Text(entry.subject)
                     .font(.callout)
@@ -380,47 +434,24 @@ struct PackageDetail: View {
         }
     }
 
-    // MARK: - Upstream releases (§21, best-effort)
+    // MARK: - Upstream release rows (§21, merged into the history list)
 
-    private func releasesSection(_ item: BrewItem) -> some View {
-        GroupBox {
-            switch app.versionHistory.releaseStatus(for: item) {
-            case .idle, .loading:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Loading releases…").font(.callout).foregroundStyle(.secondary)
-                }
-            case .loaded(let releases):
-                if releases.isEmpty {
-                    Text("No GitHub releases published for this upstream.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(releases) { release in releaseRow(release) }
-                    }
-                }
-            case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
-                    .textSelection(.enabled)
-            }
-        } label: {
-            HStack {
-                Text("Upstream releases")
-                Spacer()
-                if let notes = releaseNotesURL(for: item) {
-                    Button("All releases in browser") { NSWorkspace.shared.open(notes) }
-                        .font(.callout)
-                }
-            }
-        }
-    }
-
-    /// Tag click opens that release's page (its change notes) in the browser.
-    private func releaseRow(_ release: UpstreamRelease) -> some View {
+    /// A release with no matching packaging bump gets its own row: tag opens
+    /// the release page, a "not packaged" chip flags that brew has no bump
+    /// for it yet (usually the newest upstream release). Rows in the history
+    /// failure fallback omit the chip — packaging state is unknown there.
+    private func releaseRow(_ release: UpstreamRelease, notPackaged: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Group {
+                if let date = release.publishedAt {
+                    Text(date, format: .relative(presentation: .named))
+                } else {
+                    Text("—")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(width: 86, alignment: .trailing)
             Button {
                 if let url = release.webURL { NSWorkspace.shared.open(url) }
             } label: {
@@ -430,19 +461,36 @@ struct PackageDetail: View {
             .font(.callout.bold())
             .foregroundStyle(.tint)
             .help("Open \(release.tag) on GitHub")
+            if notPackaged {
+                Text("not packaged")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.quaternary.opacity(0.6), in: Capsule())
+                    .help("the upstream released this; no packaging bump found")
+            }
             if release.isPrerelease {
                 Text("pre-release").font(.caption).foregroundStyle(.orange)
             }
-            if let title = release.title {
+            if let title = release.title, title.distinctFrom(release.tag) {
                 Text(title).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 4)
-            if let date = release.publishedAt {
-                Text(date, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
+    }
+}
+
+private extension String {
+    /// Release titles that just repeat the version the row already prints
+    /// ("0.39.1" beside "v0.39.1") carry no information → drop them. Decode
+    /// only catches title == tag; this also catches title == the bump version.
+    func distinctFrom(_ version: String) -> Bool {
+        func normalize(_ s: String) -> String {
+            let lower = s.lowercased()
+            return lower.hasPrefix("v") ? String(lower.dropFirst()) : lower
+        }
+        return normalize(self) != normalize(version)
     }
 }
 
