@@ -44,11 +44,17 @@ private struct FakeProbe: ExternalBrewProbing {
     func isBrewRunningExternally() -> Bool { running }
 }
 
-private struct FakeManifestFetcher: ManifestFetching {
+private final class FakeManifestFetcher: ManifestFetching, @unchecked Sendable {
     let manifest: PackageManifest
     let fetchedAt: Date
-    func fetch(bottleTag: String, now: Date) async throws -> ManifestFetchResult {
-        ManifestFetchResult(manifest: manifest, fetchedAt: fetchedAt)
+    private(set) var forceSeen: [Bool] = []
+    init(manifest: PackageManifest, fetchedAt: Date) {
+        self.manifest = manifest
+        self.fetchedAt = fetchedAt
+    }
+    func fetch(bottleTag: String, now: Date, force: Bool) async throws -> ManifestFetchResult {
+        forceSeen.append(force)
+        return ManifestFetchResult(manifest: manifest, fetchedAt: fetchedAt)
     }
 }
 
@@ -94,6 +100,17 @@ private func makeHarness(probeRunning: Bool = false, jqAvailable: Bool = true,
 }
 
 // MARK: - Tests
+
+@MainActor
+@Test func model_forceManifestFlagReachesFetcher() async throws {
+    let manifest = try PackageManifest.decode(jwsData: fixtureData("manifest-mini.json"))
+    let fake = FakeManifestFetcher(manifest: manifest,
+                                   fetchedAt: Date(timeIntervalSince1970: 1_700_000_000))
+    let h = try makeHarness(manifestFetcher: fake)
+    await h.model.refresh(reason: .manual)
+    await h.model.refresh(reason: .manual, forceManifest: true)
+    #expect(fake.forceSeen == [false, true]) // plain refresh never forces; the force flag plumbs through
+}
 
 @MainActor
 @Test func model_versionDataAsOfUsesManifestFetchedAt() async throws {

@@ -35,7 +35,7 @@ public struct PgrepBrewProbe: ExternalBrewProbing {
 /// Seam so tests can fake the manifest fetch without faking HTTP (Task 7's
 /// ManifestFetcher conforms to this).
 public protocol ManifestFetching: Sendable {
-    func fetch(bottleTag: String, now: Date) async throws -> ManifestFetchResult
+    func fetch(bottleTag: String, now: Date, force: Bool) async throws -> ManifestFetchResult
 }
 
 extension ManifestFetcher: ManifestFetching {}
@@ -73,10 +73,10 @@ public final class InventoryModel {
         self.settings = settings
     }
 
-    public func refresh(reason: RefreshReason) async {
+    public func refresh(reason: RefreshReason, forceManifest: Bool = false) async {
         if let existing = refreshTask { await existing.value; return } // single flight
         if reason == .focus, focusGateBlocks(now: Date()) { return }
-        let task = Task { await self.performRefresh() }
+        let task = Task { await self.performRefresh(forceManifest: forceManifest) }
         refreshTask = task
         await task.value
         refreshTask = nil
@@ -91,7 +91,7 @@ public final class InventoryModel {
         return false
     }
 
-    private func performRefresh() async {
+    private func performRefresh(forceManifest: Bool) async {
         state = .loading
         let now = Date()
 
@@ -142,7 +142,7 @@ public final class InventoryModel {
             if let bottleTag {
                 // fetchedAt (not refresh time): a cached or stale-served manifest
                 // must show its real age in the footer (Freshness #1).
-                let manifestResult = try? await manifestFetcher.fetch(bottleTag: bottleTag, now: now)
+                let manifestResult = try? await manifestFetcher.fetch(bottleTag: bottleTag, now: now, force: forceManifest)
                 manifest = manifestResult?.manifest
                 versionDataAsOf = manifestResult?.fetchedAt
             } else {

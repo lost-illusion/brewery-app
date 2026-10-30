@@ -53,9 +53,11 @@ public struct ManifestFetcher: Sendable {
 
     /// Returns the cached manifest when it is fresh for this bottle tag;
     /// otherwise downloads, decodes, writes the cache, and returns fetchedAt = now.
-    public func fetch(bottleTag: String, now: Date) async throws -> ManifestFetchResult {
+    /// `force: true` bypasses the fresh-cache shortcut (a manual "fetch now");
+    /// the offline fallback still serves the last-good cache if the download fails.
+    public func fetch(bottleTag: String, now: Date, force: Bool = false) async throws -> ManifestFetchResult {
         let cached = readCache()
-        if let cached,
+        if !force, let cached,
            !Self.isStale(fetchedAt: cached.fetchedAt, now: now),
            cached.manifest.bottleTag == bottleTag {
             return cached

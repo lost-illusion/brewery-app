@@ -59,6 +59,9 @@ struct BreweryApp: App {
             CommandGroup(after: .newItem) {
                 Button("Refresh Inventory") { Task { await app.model.refresh(reason: .manual) } }
                     .keyboardShortcut("r")
+                // Bypasses the 24 h manifest cache and re-downloads version data now.
+                Button("Fetch Version Data Now") { Task { await app.model.refresh(reason: .manual, forceManifest: true) } }
+                    .keyboardShortcut("r", modifiers: [.command, .option])
             }
         }
         Settings {

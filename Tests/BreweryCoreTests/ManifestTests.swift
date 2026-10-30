@@ -33,6 +33,24 @@ import Testing
     #expect(offline.fetchedAt == now) // the original fetch time, not "now"
 }
 
+@Test func manifest_fetchForceRefetchesDespiteFreshCache() async throws {
+    let (fetcher, http) = try makeFetcher()
+    let now = Date()
+    _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now)
+    _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now.addingTimeInterval(1), force: true)
+    #expect(http.calls.count == 2) // force bypasses the fresh-cache shortcut
+}
+
+@Test func manifest_fetchForceFallsBackToCacheOffline() async throws {
+    let (fetcher, http) = try makeFetcher()
+    let now = Date()
+    _ = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now)
+    http.willThrow = true
+    let r = try await fetcher.fetch(bottleTag: "arm64_golden_gate", now: now.addingTimeInterval(1), force: true)
+    #expect(r.manifest.latestFormulaVersion("ace") == "8.0.8")
+    #expect(r.fetchedAt == now) // last-good age preserved, not faked to now
+}
+
 @Test func manifest_fetchOfflineNoCacheThrows() async throws {
     let (fetcher, http) = try makeFetcher()
     http.willThrow = true
