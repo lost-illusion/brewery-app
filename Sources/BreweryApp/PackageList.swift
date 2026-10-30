@@ -23,15 +23,20 @@ struct PackageList: View {
             ToolbarItem(placement: .primaryAction) {
                 // Manual refresh: re-runs list+info now; the manifest follows its
                 // 24 h cache (the app never runs `brew update` — design §Freshness).
-                if model.state == .loading {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button {
-                        Task { await model.refresh(reason: .manual) }
-                    } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
+                // The label lays out in both states (opacity 0, not removed) so the
+                // toolbar slot keeps a fixed size while the spinner replaces it.
+                Button {
+                    Task { await model.refresh(reason: .manual) }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .opacity(model.state == .loading ? 0 : 1)
+                        .overlay {
+                            if model.state == .loading {
+                                ProgressView().controlSize(.small)
+                            }
+                        }
                 }
+                .disabled(model.state == .loading)
             }
         }
     }
