@@ -13,14 +13,26 @@ struct Sidebar: View {
             // Badge counts third-party taps only: official ones are the
             // baseline, not something the user added. 0 until taps load.
             ForEach(BrewSection.allCases, id: \.self) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
-                    .badge(section == .taps ? model.taps.filter(\.isExternal).count
-                                            : counts[section] ?? 0)
+                rowLabel(for: section, counts: counts)
             }
         }
         .navigationTitle("brewery")
         .safeAreaInset(edge: .bottom) { footer }
+    }
+
+    /// Badge per section: taps counts third-party taps only (official ones are
+    /// the baseline, not something the user added; 0 until taps load). Brew is
+    /// skipped entirely — its list is always the same fixed top 10, so a count
+    /// there would carry no information (and SwiftUI has no "no Int badge"
+    /// overload to express it).
+    @ViewBuilder
+    private func rowLabel(for section: BrewSection, counts: [BrewSection: Int]) -> some View {
+        let label = Label(section.title, systemImage: section.icon).tag(section)
+        switch section {
+        case .taps: label.badge(model.taps.filter(\.isExternal).count)
+        case .topInstalls: label
+        default: label.badge(counts[section] ?? 0)
+        }
     }
 
     private var footer: some View {

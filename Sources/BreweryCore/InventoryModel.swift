@@ -87,6 +87,10 @@ public final class InventoryModel {
     public private(set) var inventoryUpdated: Date?
     public private(set) var versionDataAsOf: Date?
     public private(set) var manifestBottleTag: String? // the bottle tag the manifest was fetched for
+    /// Fetched lists keyed by analytics window; the Brew picker switches
+    /// periods without refetching a window already loaded this launch.
+    public private(set) var topInstalls: [AnalyticsPeriod: TopInstallsResult] = [:]
+    public private(set) var topInstallsState: ViewState = .idle
     public private(set) var taps: [TapInfo] = []
     public private(set) var tapsState: ViewState = .idle
     public private(set) var tapsUpdated: Date?
@@ -99,6 +103,7 @@ public final class InventoryModel {
 
     private let runner: CommandRunning
     private let manifestFetcher: ManifestFetching
+    private let topInstallsFetcher: TopInstallsFetching
     private let store: SnapshotStore
     private let brewProbe: ExternalBrewProbing
     private let jqAvailable: Bool
@@ -106,15 +111,18 @@ public final class InventoryModel {
     private var refreshTask: Task<Void, Never>?
     private var upgradeTask: Task<Void, Never>?
     private var tapsTask: Task<Void, Never>?
+    private var topInstallsTask: Task<Void, Never>?
     private var tapActionTask: Task<Void, Never>?
     private var lastFailure: Date?
     private var lastManifest: PackageManifest?
     private static let failureBackoff: TimeInterval = 60
 
     public init(runner: CommandRunning, manifestFetcher: ManifestFetching, store: SnapshotStore,
-                brewProbe: ExternalBrewProbing, jqAvailable: Bool, settings: InventorySettings) {
+                brewProbe: ExternalBrewProbing, jqAvailable: Bool, settings: InventorySettings,
+                topInstallsFetcher: TopInstallsFetching = TopInstallsFetcher()) {
         self.runner = runner
         self.manifestFetcher = manifestFetcher
+        self.topInstallsFetcher = topInstallsFetcher
         self.store = store
         self.brewProbe = brewProbe
         self.jqAvailable = jqAvailable
@@ -462,6 +470,32 @@ public final class InventoryModel {
             trustStore = result.exitCode == 0 ? try? TrustStore.decode(result.stdout) : nil
         } catch {
             trustStore = nil
+        }
+    }
+
+    // MARK: - Brew (top 30-day installs)
+
+    /// The Brew pane's top-installs list, loaded lazily like taps: pure HTTP
+    /// against formulae.brew.sh (no brew command, no inventory coupling), so it
+    /// never gates or is gated by a refresh. Fetched once per launch; only the
+    /// pane's Refresh button re-fetches. A failed fetch keeps the last good
+    /// list so stale-beating-empty never happens after a first success.
+    public func loadTopInstalls(period: AnalyticsPeriod, force: Bool = false) async {
+        if let existing = topInstallsTask { await existing.value; return } // single flight
+        if !force, topInstalls[period] != nil { return }
+        let task = Task { await self.performLoadTopInstalls(period: period, force: force) }
+        topInstallsTask = task
+        await task.value
+        topInstallsTask = nil
+    }
+
+    private func performLoadTopInstalls(period: AnalyticsPeriod, force: Bool) async {
+        topInstallsState = .loading
+        do {
+            topInstalls[period] = try await topInstallsFetcher.fetchTopInstalls(now: Date(), limit: 10, period: period, force: force)
+            topInstallsState = .ready
+        } catch {
+            topInstallsState = .failed(message: "analytics fetch failed: \(error.localizedDescription)")
         }
     }
 
