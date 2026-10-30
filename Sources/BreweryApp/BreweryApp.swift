@@ -12,6 +12,7 @@ final class AppState {
     let model: InventoryModel
     let jqAvailable: Bool
     let brewFound: Bool
+    let changelogDiagnostics: ChangelogDiagnostics
 
     init(defaults: UserDefaults = .standard) {
         let brewURL = discoverBrew(searchPaths: Self.brewSearchPaths,
@@ -31,6 +32,8 @@ final class AppState {
             brewProbe: PgrepBrewProbe(),
             jqAvailable: jqAvailable,
             settings: settings)
+        changelogDiagnostics = ChangelogDiagnostics(exec: ProcessExecRunner(),
+                                                    tokenChecker: GitHubAPITokenChecker())
     }
 
     static func detectJq() -> Bool {
@@ -40,6 +43,8 @@ final class AppState {
 
     static let greedyKey = "greedyOutdated"
     static let brewOverrideKey = "brewPathOverride"
+    static let changelogSourceKey = "changelogSource"
+    static let githubTokenKey = "githubToken"
 }
 
 @main
@@ -68,31 +73,6 @@ struct BreweryApp: App {
             SettingsView()
                 .environment(app)
         }
-    }
-}
-
-struct SettingsView: View {
-    @Environment(AppState.self) private var app
-    @AppStorage(AppState.greedyKey) private var greedy = false
-    @AppStorage(AppState.brewOverrideKey) private var brewOverride = ""
-
-    var body: some View {
-        @Bindable var model = app.model
-        Form {
-            Toggle("Greedy outdated (count self-updating casks)", isOn: $model.settings.greedyOutdated)
-                .onChange(of: model.settings.greedyOutdated) { _, newValue in
-                    greedy = newValue
-                    model.settingsChanged()
-                }
-            GroupBox {
-                TextField("Brew path override", text: $brewOverride, prompt: Text("/opt/homebrew/bin/brew"))
-                Text("Leave empty to auto-detect. A changed override applies on next launch.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } label: { Text("Brew location") }
-        }
-        .padding(20)
-        .frame(width: 420)
     }
 }
 

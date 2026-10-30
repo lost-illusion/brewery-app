@@ -243,6 +243,16 @@ Verified present in `brew commands` but out of scope for brewery (they operate o
 - **Fully-qualified installs auto-trust the item**: `brew install umputun/apps/mpt` (from an untrusted tap) loads and installs it, writing the grant. Gotcha: this fires even with `--dry-run` — three probe dry-runs silently trusted `mpt`, `spot`, `weblist` (each manually untrusted after; brew has no read-only trust probe). The GUI therefore has no dry-run affordance, and its Install button is trust+install in one action.
 - Ask mode is brew's **install** default (help: `-y, --no-ask, --yes` — "Ask mode is the default unless $HOMEBREW_NO_ASK is set"): the GUI's install passes `-y`, same posture as upgrade's `-y` (§77), so a TTY prompt can never hang the runner.
 
+### 23. Settings window & changelog-source diagnostics (verified 2026-10-30)
+
+- GUI feature: Settings (⌘,) is a two-tab `TabView` — **General** (existing settings: greedy outdated, brew path override) and **Changelogs** (config for the §21 feature before the feature exists, plus diagnostics proving each source works on this machine).
+- Source dropdown (the enable switch itself): Off / GitHub token / Local gh CLI. Stored in UserDefaults as `changelogSource` (`"off"|"token"|"ghCLI"`) + `githubToken`.
+- **Token check** — `GET https://api.github.com/user` with `Authorization: Bearer <token>`: 200 → shows the account login; 401/403 → rejection wording per code. `/user` proves the token is live and does not draw on the search rate limit. UNVERIFIED live with a real token (probes tested with fakes; no token entered on this machine yet).
+- **gh check** — `gh auth status`, exit code 0 is the verdict; the report prints on **stderr**, not stdout, so the decoder reads both streams (verified live 2026-10-30: `gh 2.x` at `/opt/homebrew/bin/gh`, "✓ Logged in to github.com account … (keyring)"; failure layout keeps a `github.com` header line first — the decoder hunts for the `X Failed to log in` line instead of taking line one).
+- **git check** — `git --version` from `/usr/bin`, `/opt/homebrew/bin`, `/usr/local/bin` (verified live: "git version 2.54.0 (Apple Git-157)"). Gotcha: `/usr/bin/git` is Apple's shim and exists without the Command Line Tools; running it then fails with stderr containing "requires Xcode Command Line Tools" — surfaced verbatim with the `xcode-select --install` fix.
+- Changelog pane auto-runs the git check on open (a fact about the machine, not a preference); token/gh checks are button-driven because they touch the network or depend on typed input.
+- Gotchas: the token is stored in UserDefaults **plain text** for now (Keychain migration open); `gh` keyring auth is opaque beyond the exit code — brewery can see that gh is signed in, not which scopes the token behind it has.
+
 ## Key HOMEBREW_* variables for the GUI (all from manpage ENVIRONMENT section)
 
 Determinism/query hygiene: `HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_AUTO_UPDATE_SECS` (86400), `HOMEBREW_API_AUTO_UPDATE_SECS` (450), `HOMEBREW_AUTO_UPDATE_QUIET`, `HOMEBREW_NO_UPDATE_REPORT_NEW`, `HOMEBREW_NO_ENV_HINTS`, `HOMEBREW_NO_ANALYTICS`, `HOMEBREW_NO_COLOR`, `HOMEBREW_VERBOSE`, `HOMEBREW_DEBUG`, `HOMEBREW_DEVELOPER`, `HOMEBREW_NO_BOOTSNAP` (if the GUI invokes brew very frequently, Bootsnap cache is the recommended speed-up), `HOMEBREW_LOCK_CONTEXT`.
