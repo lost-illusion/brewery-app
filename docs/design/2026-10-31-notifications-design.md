@@ -154,8 +154,11 @@ Consequence: milestone 1 needs **no new signing identity**.
    inventory ok, digest check evaluated", state file `lastCheckAt` advanced, `last exit code = 0`.
    logout/login survival and user-disable state still untested.
 4. **Sleep gate** — sleep across the scheduled time; expect exactly one catch-up run.
-5. **Concurrency gate** — GUI refresh + agent overlap → one digest; crash between submit and
-   state write (exactly-once is not guaranteed — measure the duplicate blast radius).
+5. **Concurrency gate — PASSED (core) 2026-10-31** — two headless processes launched
+   simultaneously: one logged "skipped: another brewery check holds the lock", the other
+   completed ("check done"). Same flock guards the GUI's `evaluate()`. Still open: the crash
+   window between UN post and state write (exactly-once is not guaranteed — measure the
+   duplicate blast radius).
 6. **Data gate** — stale manifest/offline, tap lag, malformed JSON, pinned, greedy casks,
    state-write failure.
 7. **Lifecycle gate — PASSED (core) 2026-10-31** — after registration, `make-app-bundle.sh`
