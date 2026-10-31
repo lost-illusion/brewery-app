@@ -1,10 +1,11 @@
 # Notifications — design (2026-10-31)
 
-Status: **milestone 1 shipped 2026-10-31** (option A: while-app-running digests —
-`UpdateNotifications.swift` core + `NotificationsCoordinator` + Settings → Updates tab;
-milestone 2, the launchd agent, still open). Architecture advice from a codex advisory
-session against this repo. **Gate 1 (signing/authorization) passed 2026-10-31** — evidence
-below; gates 2–7 still open.
+Status: **milestones 1–2 shipped 2026-10-31** (option A while-app-running digests +
+option B launchd agent: `UpdateNotifications.swift` core + `NotificationsCoordinator` +
+Settings → Updates tab + `Main.swift` headless entry + `UpdateCheckLock` + bundle
+LaunchAgent plist). Live verification of the agent toggle and gates 4–7 still open.
+Architecture advice from a codex advisory session against this repo. **Gate 1
+(signing/authorization) passed 2026-10-31** — evidence below.
 
 ## Goal
 
@@ -120,16 +121,28 @@ Verified on this machine (macOS 26 / Darwin 27):
   (`activationPolicy = .accessory`) is sufficient lifecycle; the run loop waited for the
   delivery before exit. What is *not* yet tested is launchd itself starting that executable.
 
-Consequence: milestone 1 needs **no new signing identity**. `SMAppService` registration under
-ad-hoc signing remains an open risk (gate 3) — Apple DTS flagged ad-hoc there specifically.
-A stable local identity is the fallback, not the plan.
+Consequence: milestone 1 needs **no new signing identity**.
+
+- **`SMAppService` registration works under ad-hoc signing** (gate 3, 2026-10-31): probe
+  bundle with `Contents/Library/LaunchAgents/com.illusion.brewery.probe.updates.plist`
+  (`BundleProgram: Contents/MacOS/NotifyProbe`, `StartInterval 60`) → `register()` succeeded,
+  `status = registered` (no `requiresApproval`, no user consent UI), and launchd fired the
+  binary twice at exact 60 s intervals; the fired process resolved `Bundle.main.bundleIdentifier`
+  normally, so notification identity is retained. DTS's ad-hoc warning did not bite here.
+  A launchd-started process is identifiable by `XPC_SERVICE_NAME == <agent label>`
+  (a tool-shell may inherit `XPC_SERVICE_NAME=0` — match exactly, don't just test presence).
+  API gotcha: this SDK renamed `SMAppService.Status.registered` to `.enabled` and bridged
+  the C names lowerCamelCase — the cases are `.notRegistered` / `.enabled` /
+  `.requiresApproval` (the old `.registered` is gone; compiler suggestions may show the
+  obsoleted `NotRegistered`, which does not compile).
 
 ## Verification gates (run before committing code)
 
 1. **Signing gate — PASSED 2026-10-31** (see "Signing decision" above for evidence).
 2. **Headless gate — PASSED (partial) 2026-10-31** — direct exec from terminal: delivery,
    no window, click routing warm. Launchd-started variant folds into gate 3.
-3. **Registration gate** — `SMAppService` with ad-hoc signing; logout/login; user-disable state.
+3. **Registration gate — PASSED (core) 2026-10-31** — see evidence above; logout/login
+   survival and user-disable state still untested.
 4. **Sleep gate** — sleep across the scheduled time; expect exactly one catch-up run.
 5. **Concurrency gate** — GUI refresh + agent overlap → one digest; crash between submit and
    state write (exactly-once is not guaranteed — measure the duplicate blast radius).

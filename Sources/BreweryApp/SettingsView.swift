@@ -39,6 +39,15 @@ private struct UpdatesSettingsPane: View {
                 Text(message).font(.caption).foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Section("Background agent") {
+                Toggle("Check while brewery is closed", isOn: Binding(
+                    get: { app.notifications.backgroundAgentRegistered },
+                    set: { app.notifications.setBackgroundAgent($0) }))
+                Text(app.notifications.backgroundAgentSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Section("Digest checks") {
                 Text(statusLine)
                     .font(.caption.monospacedDigit())

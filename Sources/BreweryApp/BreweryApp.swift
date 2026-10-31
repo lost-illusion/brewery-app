@@ -18,7 +18,7 @@ final class AppState {
     /// Bumped by a notification click; ContentView routes it to the Outdated section.
     var openOutdatedRequested: Date?
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, headless: Bool = false) {
         let brewURL = discoverBrew(searchPaths: Self.brewSearchPaths,
                                    pathOverride: defaults.string(forKey: Self.brewOverrideKey))
         brewFound = brewURL != nil
@@ -54,7 +54,8 @@ final class AppState {
             retention: HistoryCacheRetention(rawValue: defaults.string(forKey: Self.historyRetentionKey) ?? "") ?? .thirtyDays)
 
         notifications = NotificationsCoordinator(store: UpdateNotifyStore(directory: storeDir),
-                                                defaults: defaults)
+                                                storeDirectory: storeDir, defaults: defaults,
+                                                headless: headless)
         notifications.onScheduledTick = { [weak self] in
             guard let self else { return }
             await self.model.refresh(reason: .manual)
@@ -80,7 +81,6 @@ final class AppState {
     static let notifyKey = "updateNotificationsEnabled"
 }
 
-@main
 struct BreweryApp: App {
     @State private var app = AppState()
 

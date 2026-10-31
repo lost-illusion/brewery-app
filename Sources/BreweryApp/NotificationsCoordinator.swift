@@ -2,6 +2,7 @@ import AppKit
 import BreweryCore
 import Foundation
 import Observation
+import ServiceManagement
 import UserNotifications
 
 // File-scope ids: read from nonisolated UN callbacks, which cannot touch the
@@ -30,10 +31,13 @@ final class NotificationsCoordinator: NSObject {
     private(set) var lastCheckAt: Date?
     private(set) var pendingNewCount = 0
     private(set) var statusMessage: String?
+    private(set) var backgroundAgentRegistered = false
+    private(set) var backgroundAgentSummary = "background agent: not registered"
 
     var enabled: Bool { defaults.bool(forKey: AppState.notifyKey) }
 
     private let store: UpdateNotifyStore
+    private let storeDirectory: URL
     private let defaults: UserDefaults
     private let activity: NSBackgroundActivityScheduler
     private var evaluating = false
@@ -46,8 +50,12 @@ final class NotificationsCoordinator: NSObject {
     private var writesBroken = false
     private var activityScheduled = false
 
-    init(store: UpdateNotifyStore, defaults: UserDefaults) {
+    /// `headless` skips the in-process scheduler: the launchd agent is the one
+    /// doing the checking there, and a short-lived process must not arm a
+    /// repeating activity it will not live to serve.
+    init(store: UpdateNotifyStore, storeDirectory: URL, defaults: UserDefaults, headless: Bool = false) {
         self.store = store
+        self.storeDirectory = storeDirectory
         self.defaults = defaults
         activity = NSBackgroundActivityScheduler(identifier: "com.illusion.brewery.update-digest")
         super.init()
@@ -57,8 +65,9 @@ final class NotificationsCoordinator: NSObject {
         // The delegate is installed even when disabled: it only routes clicks,
         // and a click that cold-launches the app must reach the routing hook.
         UNUserNotificationCenter.current().delegate = self
-        if enabled { startActivity() }
+        if enabled && !headless { startActivity() }
         refreshAuthorizationSummary()
+        refreshBackgroundAgentStatus()
     }
 
     func setEnabled(_ on: Bool) {
@@ -83,6 +92,40 @@ final class NotificationsCoordinator: NSObject {
         }
     }
 
+    // MARK: - Background agent (milestone 2): the launchd one-shot checker
+
+    private static let agentPlistName = "com.illusion.brewery.updates.plist"
+
+    func setBackgroundAgent(_ on: Bool) {
+        let service = SMAppService.agent(plistName: Self.agentPlistName)
+        do {
+            if on { try service.register() } else { try service.unregister() }
+        } catch {
+            statusMessage = "background agent: \(error.localizedDescription)"
+        }
+        refreshBackgroundAgentStatus()
+    }
+
+    private func refreshBackgroundAgentStatus() {
+        let service = SMAppService.agent(plistName: Self.agentPlistName)
+        // SDK 27 renamed the status cases (old `.registered` is now `.enabled`;
+        // C-names bridged to lowerCamelCase).
+        switch service.status {
+        case .enabled:
+            backgroundAgentRegistered = true
+            backgroundAgentSummary = "background agent: registered — checks run daily even while brewery is closed"
+        case .requiresApproval:
+            backgroundAgentRegistered = false
+            backgroundAgentSummary = "background agent: needs approval — allow brewery under System Settings → Login Items & Extensions"
+        case .notRegistered:
+            backgroundAgentRegistered = false
+            backgroundAgentSummary = "background agent: not registered"
+        default:
+            backgroundAgentRegistered = false
+            backgroundAgentSummary = "background agent: status unavailable"
+        }
+    }
+
     /// This SDK has no suspend/resume: scheduling is the enable switch and
     /// `invalidate()` is the disable switch (repeats reschedules after .finished).
     private func startActivity() {
@@ -102,6 +145,9 @@ final class NotificationsCoordinator: NSObject {
         guard enabled, isAuthorized, !evaluating, !writesBroken else { return }
         evaluating = true
         defer { evaluating = false }
+        // Serialize with the launchd headless check (design §Scheduling & Homebrew safety).
+        guard let lock = UpdateCheckLock.tryAcquire(directory: storeDirectory) else { return }
+        defer { lock.release() }
 
         guard let stored = store.load() else {
             statusMessage = "notifications state is unreadable — announcements stay off until it is fixed"

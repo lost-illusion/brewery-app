@@ -47,7 +47,9 @@ public struct ManifestFetcher: Sendable {
 
     public static func defaultCacheURL() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Brewery", isDirectory: true)
+            // Lowercase to match every other store (design §housekeeping): the
+            // old "Brewery" spelling meant two directories on case-sensitive volumes.
+            .appendingPathComponent("brewery", isDirectory: true)
             .appendingPathComponent("manifest-cache.json")
     }
 

@@ -62,10 +62,12 @@ private func makeScript(dir: URL, name: String, content: String, executable: Boo
     let dir = try makeTempDir("F")
     let script = try makeScript(
         dir: dir, name: "fake-brew.sh",
-        content: "#!/bin/sh\necho \"DEV=${HOMEBREW_DEVELOPER-UNSET} AU=$HOMEBREW_NO_AUTO_UPDATE\"\n",
+        content: "#!/bin/sh\necho \"DEV=${HOMEBREW_DEVELOPER-UNSET} AU=$HOMEBREW_NO_AUTO_UPDATE FORCE=${HOMEBREW_FORCE_API_AUTO_UPDATE-UNSET}\"\n",
         executable: true)
-    // extraEnv deliberately tries to re-inject a stripped var; the fixed filter must win.
-    let runner = BrewRunner(brewURL: script, extraEnv: ["HOMEBREW_DEVELOPER": "1"])
+    // extraEnv deliberately tries to re-inject stripped vars; the fixed filter must win.
+    // FORCE_API_AUTO_UPDATE overrides NO_AUTO_UPDATE for API data in brew itself, so it
+    // must never reach the child (design §Scheduling & Homebrew safety).
+    let runner = BrewRunner(brewURL: script, extraEnv: ["HOMEBREW_DEVELOPER": "1", "HOMEBREW_FORCE_API_AUTO_UPDATE": "1"])
     let result = try await runner.run([])
-    #expect(String(data: result.stdout, encoding: .utf8) == "DEV=UNSET AU=1\n")
+    #expect(String(data: result.stdout, encoding: .utf8) == "DEV=UNSET AU=1 FORCE=UNSET\n")
 }

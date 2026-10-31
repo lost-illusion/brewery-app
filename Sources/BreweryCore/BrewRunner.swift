@@ -18,7 +18,10 @@ public struct BrewRunner: CommandRunning {
         "HOMEBREW_NO_ANALYTICS": "1",
     ]
     // Stripped after every merge so nothing — parent env or extraEnv — can re-inject them (§13).
-    private static let strippedEnvKeys: [String] = ["HOMEBREW_DEVELOPER", "HOMEBREW_VERBOSE", "HOMEBREW_DEBUG"]
+    // FORCE_API_AUTO_UPDATE overrides NO_AUTO_UPDATE for API data (docs Manpage), so a user
+    // who set it would silently re-arm the auto-update our fixedEnv exists to prevent (design
+    // §Scheduling & Homebrew safety).
+    private static let strippedEnvKeys: [String] = ["HOMEBREW_DEVELOPER", "HOMEBREW_VERBOSE", "HOMEBREW_DEBUG", "HOMEBREW_FORCE_API_AUTO_UPDATE"]
 
     private let brewURL: URL
     private let extraEnv: [String: String]
