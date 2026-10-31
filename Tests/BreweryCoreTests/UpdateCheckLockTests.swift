@@ -11,5 +11,8 @@ import Testing
     }
     #expect(UpdateCheckLock.tryAcquire(directory: dir) == nil) // busy — the other process checks instead
     first.release()
-    #expect(UpdateCheckLock.tryAcquire(directory: dir) != nil) // re-acquirable after release
+    guard let again = UpdateCheckLock.tryAcquire(directory: dir) else { // re-acquirable after release
+        Issue.record("re-acquire after release should succeed"); return
+    }
+    again.release() // release it too — a held fd would leak into the rest of the test process
 }

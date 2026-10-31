@@ -6,24 +6,40 @@ import Testing
 
 private final class FakeRunner: CommandRunning, @unchecked Sendable {
     private let results: [String: BrewResult]
-    private(set) var calls: [[String]] = []
+    private let gateInfo: Bool
+
+    // Gate handshake under one lock: the old form resumed the entry waiter
+    // before installing the gate continuation (resumeInfoGate could arrive at a
+    // nil gate → hang), and checked infoEntered before registering the waiter
+    // (lost wakeup → hang). Every state transition below is atomic.
+    private let stateLock = NSLock()
+    private var _calls: [[String]] = []
+    var calls: [[String]] { stateLock.withLock { _calls } }
     private var gate: CheckedContinuation<Void, Never>?
     private var entryWaiter: CheckedContinuation<Void, Never>?
     private var infoEntered = false
 
-    private let gateInfo: Bool
     init(results: [String: BrewResult], gateInfo: Bool = false) {
         self.results = results
         self.gateInfo = gateInfo
     }
 
     func run(_ args: [String]) async throws -> BrewResult {
-        calls.append(args)
+        stateLock.withLock { _calls.append(args) }
         await Task.yield()
         if args.first == "info", gateInfo { // gate only when armed, so other tests' info calls return
-            infoEntered = true
-            entryWaiter?.resume(); entryWaiter = nil
-            await withCheckedContinuation { cont in gate = cont }
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                // installed BEFORE entry is announced, so a following
+                // resumeInfoGate() can never miss the gate
+                let waiter = stateLock.withLock { () -> CheckedContinuation<Void, Never>? in
+                    gate = cont
+                    let w = entryWaiter
+                    entryWaiter = nil
+                    infoEntered = true
+                    return w
+                }
+                waiter?.resume()
+            }
         }
         guard let r = results[args.joined(separator: " ")] else {
             return BrewResult(exitCode: 1, stdout: Data(), stderr: Data("unscripted args: \(args)".utf8))
@@ -32,11 +48,25 @@ private final class FakeRunner: CommandRunning, @unchecked Sendable {
     }
 
     func waitForInfoEntry() async {
-        if infoEntered { return }
-        await withCheckedContinuation { cont in entryWaiter = cont }
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            // check and register atomically — no lost wakeup
+            let alreadyEntered = stateLock.withLock { () -> Bool in
+                if infoEntered { return true }
+                entryWaiter = cont
+                return false
+            }
+            if alreadyEntered { cont.resume() }
+        }
     }
 
-    func resumeInfoGate() { gate?.resume(); gate = nil }
+    func resumeInfoGate() {
+        let g = stateLock.withLock { () -> CheckedContinuation<Void, Never>? in
+            let existing = gate
+            gate = nil
+            return existing
+        }
+        g?.resume()
+    }
 }
 
 private struct FakeProbe: ExternalBrewProbing {

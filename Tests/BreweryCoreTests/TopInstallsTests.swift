@@ -43,7 +43,10 @@ private struct FakeAnalyticsHTTP: HTTPFetching {
     }
 }
 
-private final class CountingHTTP: HTTPFetching, @unchecked Sendable {
+// Production fetches the formula + cask analytics concurrently (async let in
+// TopInstalls.fetchLive), so the counter must be synchronized — an actor, not
+// an unchecked class doing bare +=.
+private actor CountingHTTP: HTTPFetching {
     private(set) var analyticsCalls = 0
     func data(from url: URL) async throws -> Data {
         let s = url.absoluteString
@@ -125,26 +128,26 @@ private func tempCacheURL(_ label: String) -> URL {
         let now = Date(timeIntervalSince1970: 1_000_000)
 
         _ = try await fetcher.fetchTopInstalls(now: now, limit: 4, period: .d30, force: false)
-        #expect(http.analyticsCalls == 2) // formula + cask payloads
+        #expect(await http.analyticsCalls == 2) // formula + cask payloads
 
         // 1 h later, same period: the 24 h disk cache answers without HTTP.
         let cached = try await fetcher.fetchTopInstalls(now: now.addingTimeInterval(3600), limit: 4, period: .d30, force: false)
-        #expect(http.analyticsCalls == 2)
+        #expect(await http.analyticsCalls == 2)
         #expect(cached.formulae.map(\.name) == ["openssl@3", "wget", "libr"])
         #expect(cached.casks.map(\.name) == ["1password"])
         #expect(cached.fetchedAt == now) // the cache keeps the ORIGINAL fetchedAt, not "now"
 
         // A different period is a different cache entry → live fetch.
         _ = try await fetcher.fetchTopInstalls(now: now, limit: 4, period: .d90, force: false)
-        #expect(http.analyticsCalls == 4)
+        #expect(await http.analyticsCalls == 4)
 
         // Past the 24 h lifetime the next read refetches.
         _ = try await fetcher.fetchTopInstalls(now: now.addingTimeInterval(86_401), limit: 4, period: .d30, force: false)
-        #expect(http.analyticsCalls == 6)
+        #expect(await http.analyticsCalls == 6)
 
         // force: true (the pane's Refresh) bypasses even a fresh cache.
         _ = try await fetcher.fetchTopInstalls(now: now.addingTimeInterval(1), limit: 4, period: .d30, force: true)
-        #expect(http.analyticsCalls == 8)
+        #expect(await http.analyticsCalls == 8)
     }
 
     @Test func failedLiveFetchFallsBackToStaleCacheButEmptyCacheThrows() async throws {
