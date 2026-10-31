@@ -24,7 +24,7 @@ Not affiliated with or endorsed by the Homebrew project.
 ## Requirements
 
 - macOS 26+
-- Swift 6.4+ toolchain (Xcode command line tools)
+- Swift 6.3+ toolchain (Xcode 26.6 command line tools or newer; CI builds with 6.3.3)
 - Homebrew installed (verified against 7.0.11; `jq` available for `brew list --json`)
 
 ## Build and run
