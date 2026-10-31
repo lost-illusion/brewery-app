@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: swift test + bundle build (macos-26)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Test
+        run: swift test
+
+      # Exercise the real packaging path (icon, Info.plist, ad-hoc signing),
+      # not just a bare `swift build`.
+      - name: Bundle
+        run: sh Tools/make-app-bundle.sh
+
+      - name: Verify bundle
+        run: |
+          plutil -lint build/Brewery.app/Contents/Info.plist
+          codesign --verify --strict --verbose=2 build/Brewery.app

@@ -5,6 +5,12 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+VERSION="${BREWERY_VERSION:-0.1.0}"
+if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    echo "invalid BREWERY_VERSION '$VERSION' — expect MAJOR.MINOR.PATCH" >&2
+    exit 1
+fi
+
 swift build -c release
 sh Tools/make-icon.sh
 
@@ -19,7 +25,9 @@ cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # (see NotificationsCoordinator.writeAgent — the SMAppService/BundleProgram
 # variant was abandoned, design doc gate 3 has the evidence).
 
-cat > "$APP/Contents/Info.plist" <<'EOF'
+# BREWERY_VERSION optionally stamps the version fields; the GitHub release
+# workflow passes the git tag so the bundle version matches the release tag.
+cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -30,8 +38,8 @@ cat > "$APP/Contents/Info.plist" <<'EOF'
     <key>CFBundleIdentifier</key>        <string>com.illusion.brewery</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>CFBundleIconFile</key>          <string>AppIcon</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key>           <string>1</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key>           <string>$VERSION</string>
     <key>LSMinimumSystemVersion</key>    <string>26.0</string>
     <key>NSPrincipalClass</key>          <string>NSApplication</string>
 </dict>

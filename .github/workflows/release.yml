@@ -1,0 +1,66 @@
+name: Release
+
+# Glob is loose (admits v1garbage); the first step hard-validates the tag.
+on:
+  push:
+    tags: ["v[0-9]*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Test, build bundle, publish release
+    runs-on: macos-26
+    timeout-minutes: 30
+    # Per-tag group: independent tags don't block each other, but a running
+    # release for the same tag is never cancelled.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Validate tag
+        run: |
+          if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "tag must be vMAJOR.MINOR.PATCH, got: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Toolchain
+        run: swift --version
+
+      # Re-run tests here: a tag can point at any commit, and release does
+      # not trust that CI already covered this exact SHA.
+      - name: Test
+        run: swift test
+
+      # Same script the author runs locally; BREWERY_VERSION stamps the tag
+      # into Info.plist so the bundle version matches the release tag.
+      - name: Build app bundle
+        run: BREWERY_VERSION="${GITHUB_REF_NAME#v}" sh Tools/make-app-bundle.sh
+
+      # ditto is Apple's documented tool for shipping directory trees;
+      # --keepParent keeps the enclosing Brewery.app path in the archive.
+      - name: Zip bundle
+        run: ditto -c -k --keepParent build/Brewery.app "build/brewery-${GITHUB_REF_NAME}-macos-arm64.zip"
+
+      - name: Verify archived bundle
+        run: |
+          rm -rf /tmp/release-check && mkdir -p /tmp/release-check
+          ditto -x -k "build/brewery-${GITHUB_REF_NAME}-macos-arm64.zip" /tmp/release-check
+          codesign --verify --strict --verbose=2 /tmp/release-check/Brewery.app
+          plutil -lint /tmp/release-check/Brewery.app/Contents/Info.plist
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: build/brewery-${{ github.ref_name }}-macos-arm64.zip
+          fail_on_unmatched_files: true
+          body_path: .github/release-notes.md
+          # Generated notes are appended after the static install guidance.
+          generate_release_notes: true
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}

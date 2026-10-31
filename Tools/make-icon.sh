@@ -8,6 +8,8 @@ SRC=Resources/AppIcon-source.png
 BODY=${BODY:-824}
 [ -f "$SRC" ] || { echo "missing $SRC" >&2; exit 1; }
 
+mkdir -p build   # clean checkout has no build/ yet (gitignored)
+
 swift Tools/render-icon.swift "$SRC" build/AppIcon-1024.png "$BODY"
 
 rm -rf build/AppIcon.iconset
