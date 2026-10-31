@@ -3,7 +3,11 @@
 Status: **milestones 1–2 shipped 2026-10-31** (option A while-app-running digests +
 option B launchd agent: `UpdateNotifications.swift` core + `NotificationsCoordinator` +
 Settings → Updates tab + `Main.swift` headless entry + `UpdateCheckLock` + bundle
-LaunchAgent plist). Live verification of the agent toggle and gates 4–7 still open.
+LaunchAgent plist). Live verification 2026-10-31: Settings toggle → launchd shows the job
+(`submitted by smd`, `managed_by com.apple.xpc.ServiceManagement`, program identifier
+`Contents/MacOS/Brewery`); `launchctl kickstart` fired the headless check (log line
+"check done: inventory ok, digest check evaluated", `last exit code = 0`); registration
+survived a full bundle rebuild. Gates 4–6 and gate 3's tail (logout/login) still open.
 Architecture advice from a codex advisory session against this repo. **Gate 1
 (signing/authorization) passed 2026-10-31** — evidence below.
 
@@ -139,17 +143,26 @@ Consequence: milestone 1 needs **no new signing identity**.
 ## Verification gates (run before committing code)
 
 1. **Signing gate — PASSED 2026-10-31** (see "Signing decision" above for evidence).
-2. **Headless gate — PASSED (partial) 2026-10-31** — direct exec from terminal: delivery,
-   no window, click routing warm. Launchd-started variant folds into gate 3.
-3. **Registration gate — PASSED (core) 2026-10-31** — see evidence above; logout/login
-   survival and user-disable state still untested.
+2. **Headless gate — PASSED 2026-10-31** — direct exec from terminal: delivery, no window,
+   click routing warm; launchd-started delivery proven by the gate 3 probe (gate-3 fired
+   process posted visible banners). On the shipped bundle the kickstart runs evaluated the
+   digest but announced nothing — zero eligible pairs on this machine right now, so a real
+   digest from the shipped agent waits for a genuine pending update.
+3. **Registration gate — PASSED (core) 2026-10-31** — probe evidence above, then live on the
+   shipped bundle: Settings toggle → `launchctl print` shows the job (smd-submitted,
+   ServiceManagement-managed), `kickstart` ran the real agent → headless log "check done:
+   inventory ok, digest check evaluated", state file `lastCheckAt` advanced, `last exit code = 0`.
+   logout/login survival and user-disable state still untested.
 4. **Sleep gate** — sleep across the scheduled time; expect exactly one catch-up run.
 5. **Concurrency gate** — GUI refresh + agent overlap → one digest; crash between submit and
    state write (exactly-once is not guaranteed — measure the duplicate blast radius).
 6. **Data gate** — stale manifest/offline, tap lag, malformed JSON, pinned, greedy casks,
    state-write failure.
-7. **Lifecycle gate** — `make-app-bundle.sh` deletes/recreates the bundle every build;
-   test registered jobs across rebuilds; settle on one stable app location first.
+7. **Lifecycle gate — PASSED (core) 2026-10-31** — after registration, `make-app-bundle.sh`
+   deleted/recreated/re-signed the bundle at the same path; `launchctl print` still showed the
+   job (same `submitted by smd` entry), a kickstart then ran the *rebuilt* binary (new log line,
+   `last exit code = 0`). Caveat: same-path rebuild only — moving the app to a new location is
+   expected to need re-registration, and the one-stable-location decision is still open.
 
 ## Open questions
 
