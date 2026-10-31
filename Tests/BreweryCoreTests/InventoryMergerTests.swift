@@ -108,6 +108,37 @@ private func realSnapshots() throws -> (ListSnapshot, InfoSnapshot) {
     #expect(notice.replacementCommand == "brew install --cask new-app")
 }
 
+@Test func merger_caskAppTargetsPropagate() throws {
+    // The launch path rides the merged row so list rows, info-only rows, and
+    // previews all expose it the same way.
+    let list = try ListSnapshot.decode(json(#"{"formulae":[{"name":"lib","versions":["1.0"]}],"casks":[{"token":"demo-app","versions":["1.0"]}]}"#))
+    let info = try InfoSnapshot.decode(json(#"""
+    {"formulae":[],"casks":[
+      {"token":"demo-app","installed":"1.0","artifacts":[{"app":["Demo.app"],"target":"/Applications/Demo.app"}]},
+      {"token":"ghost-app","installed":"2.0","artifacts":[{"app":["Ghost.app"],"target":"/Applications/Ghost.app"}]}]}
+    """#))
+    let items = InventoryMerger.merge(list: list, info: info)
+    let cask = try #require(items.first { $0.name == "demo-app" })
+    #expect(cask.appTargets == ["/Applications/Demo.app"])
+    let ghost = try #require(items.first { $0.name == "ghost-app" }) // info-only row
+    #expect(ghost.appTargets == ["/Applications/Ghost.app"])
+    let formula = try #require(items.first { $0.name == "lib" })
+    #expect(formula.appTargets == []) // formulae never get launch targets
+
+    // A list-only cask row (no info JSON) has no artifacts to read → empty.
+    let bareInfo = try InfoSnapshot.decode(json(#"{"formulae":[],"casks":[]}"#))
+    let bare = InventoryMerger.merge(list: list, info: bareInfo)
+    #expect(bare.first { $0.name == "demo-app" }?.appTargets == [])
+
+    // Preview rows carry them too (the tap pane shows installed previews).
+    let previewInfo = try InfoSnapshot.decode(json(#"""
+    {"formulae":[],"casks":[{"token":"demo-app","installed":"1.0","tap":"somewhere/taps",
+      "artifacts":[{"app":["Demo.app"],"target":"/Applications/Demo.app"}]}]}
+    """#))
+    let preview = try #require(InventoryMerger.preview(from: previewInfo, kind: .cask, greedy: false))
+    #expect(preview.appTargets == ["/Applications/Demo.app"])
+}
+
 @Test func merger_sortedByName() throws {
     let list = try ListSnapshot.decode(json(#"""
     {"formulae":[{"name":"Zeta","versions":["1.0"]},{"name":"alpha","versions":["2.0"]},

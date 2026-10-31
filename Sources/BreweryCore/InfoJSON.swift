@@ -1,5 +1,37 @@
 import Foundation
 
+/// Loose JSON value: brew's cask `artifacts` arrays mix strings, arrays,
+/// booleans, and nested flight/uninstall hashes in the same keys (§88).
+/// Only used where a typed DTO would choke on that mix.
+private enum JSONValue: Decodable {
+    case string(String), bool(Bool), number(Double), null
+    case array([JSONValue]), object([String: JSONValue])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null; return }
+        if let v = try? c.decode(Bool.self) { self = .bool(v); return }
+        if let v = try? c.decode(Double.self) { self = .number(v); return }
+        if let v = try? c.decode(String.self) { self = .string(v); return }
+        if let v = try? c.decode([JSONValue].self) { self = .array(v); return }
+        if let v = try? c.decode([String: JSONValue].self) { self = .object(v); return }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "unsupported JSON value")
+    }
+
+    var stringValue: String? {
+        if case .string(let s) = self { return s }
+        return nil
+    }
+
+    /// Strings from an array value — or from a bare string where brew uses
+    /// an array elsewhere (`"app": "X.app"` is accepted like `"app": ["X.app"]`).
+    var stringArrayValue: [String]? {
+        if case .string(let s) = self { return [s] }
+        if case .array(let arr) = self { return arr.compactMap(\.stringValue) }
+        return nil
+    }
+}
+
 public struct InfoSnapshot: Decodable {
     public struct InstalledRecord: Codable {
         public let version: String
@@ -109,6 +141,10 @@ public struct InfoSnapshot: Decodable {
         public let tap: String
         public let dependsFormula: [String] // depends_on.formula — casks can pin formulae
         public let dependsCask: [String]    // depends_on.cask
+        /// Absolute paths of the cask's installed `.app` artifacts — each
+        /// `app` artifact's `target`, or `/Applications/<name>` when brew
+        /// omits it (default appdir). Binary/pkg/font casks yield nothing (§88).
+        public let appTargets: [String]
 
         /// `depends_on` is a mixed hash: `formula`/`cask` are string arrays,
         /// while `arch`/`macos`/`maximum_macos` are requirement objects (§45
@@ -134,6 +170,7 @@ public struct InfoSnapshot: Decodable {
             case disableReplacementCask = "disable_replacement_cask"
             case autoUpdates = "auto_updates"
             case versionLatest = "version"
+            case artifacts
         }
 
         public init(from decoder: Decoder) throws {
@@ -162,6 +199,31 @@ public struct InfoSnapshot: Decodable {
             let dependsOn = try c.decodeIfPresent(DependsOnDTO.self, forKey: .dependsOn)
             dependsFormula = dependsOn?.formula ?? []
             dependsCask = dependsOn?.cask ?? []
+            let artifacts = try c.decodeIfPresent([JSONValue].self, forKey: .artifacts) ?? []
+            appTargets = Self.appTargets(from: artifacts)
+        }
+
+        /// The launchable app bundles declared by the cask's artifacts.
+        /// An artifact counts only when it has an `app` key: wireshark's live
+        /// artifact list mixes pkg/uninstall/manpage/zap/binary dicts (binary
+        /// values even embed nested {"target":…} dicts), and scanning those
+        /// would invent launch paths that don't exist (§88).
+        private static func appTargets(from artifacts: [JSONValue]) -> [String] {
+            var out: [String] = []
+            var seen = Set<String>()
+            func add(_ path: String) {
+                if path.hasSuffix(".app"), seen.insert(path).inserted { out.append(path) }
+            }
+            for value in artifacts {
+                guard case .object(let art) = value, let names = art["app"]?.stringArrayValue else { continue }
+                if let target = art["target"]?.stringValue, target.hasSuffix(".app") {
+                    add(target)
+                } else {
+                    // brew omits the target when the app lands in its default appdir.
+                    names.forEach { add("/Applications/\($0)") }
+                }
+            }
+            return out
         }
     }
 

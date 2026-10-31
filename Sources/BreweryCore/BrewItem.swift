@@ -45,5 +45,9 @@ public struct BrewItem: Identifiable, Hashable, Codable {
     public let kegOnly: Bool
     public let autoUpdates: Bool // false for formulae
     public let dependencies: [String]
+    /// Absolute paths of installed `.app` bundles for casks (from the info
+    /// JSON's app artifacts, §88). Empty for formulae, app-less casks, and
+    /// rows with no info JSON backing.
+    public var appTargets: [String] = []
     public let sourceState: SourceState
 }

@@ -14,12 +14,21 @@ struct PackageDetail: View {
     @State private var showAllCommits = false
     @State private var visibleCommits = 10
     @State private var changelogRelease: UpstreamRelease?
+    @State private var openError: String?
 
     var body: some View {
         if let item {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(item)
+                    if let openError {
+                        Label(openError, systemImage: "exclamationmark.octagon.fill")
+                            .font(.callout).foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(.red.opacity(0.12))
+                            .textSelection(.enabled)
+                    }
                     if case .failed(let action, let message) = model.tapAction {
                         VStack(alignment: .leading, spacing: 4) {
                             Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
@@ -110,6 +119,7 @@ struct PackageDetail: View {
                     showAllCommits = false
                     visibleCommits = 10
                     changelogRelease = nil
+                    openError = nil
                 }
                 .sheet(item: $changelogRelease) { release in
                     ChangelogSheet(release: release)
@@ -188,6 +198,7 @@ struct PackageDetail: View {
                 if let release = targetRelease(for: item) {
                     noteButton(release)
                 }
+                openButton(item)
                 pinButton(item)
                 updateButton(item)
             }
@@ -219,6 +230,25 @@ struct PackageDetail: View {
         .buttonStyle(.plain)
         .foregroundStyle(.tint)
         .help("Show \(release.tag) release notes")
+    }
+
+    /// Launch the cask's installed .app bundle(s) via LaunchServices — no brew
+    /// process involved; the paths ride the row from the info JSON read
+    /// (compat §88). Installed casks without an app artifact (revmux-style
+    /// binary casks) get no button, and the row double-click stays inert.
+    @ViewBuilder private func openButton(_ item: BrewItem) -> some View {
+        if openableCask(item) {
+            Button {
+                if openCaskApps(item) { openError = nil }
+                else {
+                    openError = "Couldn't launch \(item.appTargets.joined(separator: " or ")) — the app may have been moved or deleted."
+                }
+            } label: {
+                Label("Open", systemImage: "arrow.up.forward.app")
+            }
+            .buttonStyle(.bordered)
+            .help("Launch \(item.appTargets.joined(separator: ", "))")
+        }
     }
 
     /// Only outdated pages get an Update action; the badge row stays uncluttered

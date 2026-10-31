@@ -151,7 +151,18 @@ struct PackageList: View {
             } else {
                 List(filtered, selection: $selectedID) { item in
                     PackageRow(item: item)
+                        // Double-click launches an installed cask's app; single-
+                        // click still just selects the row and opens the info
+                        // panel. Rows without an app target are inert here.
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            if openableCask(item) { openCaskApps(item) }
+                        })
                         .contextMenu {
+                            if openableCask(item) {
+                                Button { openCaskApps(item) } label: {
+                                    Label("Open", systemImage: "arrow.up.forward.app")
+                                }
+                            }
                             // brew pin accepts installed names only (compat §93);
                             // preview rows have nothing to pin.
                             if !item.installedVersions.isEmpty {

@@ -73,7 +73,8 @@ public struct InventoryMerger {
                 replacementFormula: reps.formula, replacementCask: reps.cask,
                 desc: ci.desc, homepage: ci.homepage, installedAt: ci.installedTime,
                 kegOnly: false, autoUpdates: ci.autoUpdates,
-                dependencies: ci.dependsFormula + ci.dependsCask, sourceState: .complete)
+                dependencies: ci.dependsFormula + ci.dependsCask,
+                appTargets: ci.appTargets, sourceState: .complete)
         }
     }
 
@@ -168,6 +169,7 @@ public struct InventoryMerger {
                 kegOnly: false,
                 autoUpdates: ci?.autoUpdates ?? false,
                 dependencies: (ci?.dependsFormula ?? []) + (ci?.dependsCask ?? []),
+                appTargets: ci?.appTargets ?? [], // no info JSON → no artifacts to read
                 sourceState: ci != nil ? .complete : .listOnly(reason: listOnlyReason)
             ))
         }
@@ -234,6 +236,7 @@ public struct InventoryMerger {
                 kegOnly: false,
                 autoUpdates: ci.autoUpdates,
                 dependencies: ci.dependsFormula + ci.dependsCask,
+                appTargets: ci.appTargets,
                 sourceState: .infoOnly
             ))
         }

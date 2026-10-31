@@ -42,6 +42,49 @@ import Testing
     #expect(c.dependsCask == ["other-app"])
 }
 
+@Test func infoJSON_decode_caskArtifactsAppTargets() throws {
+    // Cask artifacts carry the launched-app path (§88): the `app` artifact's
+    // `target` is where brew put the .app bundle — the info JSON already
+    // fetched on every refresh is enough to launch it, no extra brew call.
+    let info = try InfoSnapshot.decode(fixtureData("info.json"))
+    let agterm = try #require(info.casks.first { $0.token == "agterm" })
+    #expect(agterm.appTargets == ["/Applications/agterm.app"])
+    let wireshark = try #require(info.casks.first { $0.token == "wireshark-app" })
+    #expect(wireshark.appTargets == ["/Applications/Wireshark.app"])
+    let revmux = try #require(info.casks.first { $0.token == "revmux" })
+    #expect(revmux.appTargets == []) // binary-only cask: no app artifact → nothing to launch
+}
+
+@Test func infoJSON_decode_artifactsAdversarialShapes() throws {
+    let info = try InfoSnapshot.decode(fixtureData("info-adversarial.json"))
+    let agterm = try #require(info.casks.first { $0.token == "agterm" })
+    // preflight_steps flight objects, uninstall/zap hashes, and a binary array
+    // containing a nested {"target":…} dict must all decode without breaking
+    // the one app artifact this cask has.
+    #expect(agterm.appTargets == ["/Applications/agterm.app"])
+}
+
+@Test func infoJSON_decode_artifactsEdgeShapes() throws {
+    let info = try InfoSnapshot.decode(Data(#"""
+    {"formulae":[],
+     "casks":[
+      {"token":"plain","installed":"1.0","artifacts":[{"app":["Plain.app"]}]},
+      {"token":"bare","installed":"1.0","artifacts":[{"app":"Bare.app","target":"/Applications/Bare.app"}]},
+      {"token":"pair","installed":"1.0","artifacts":[
+        {"app":["First.app","Second.app"],"target":"/Applications/First.app"},
+        {"uninstall":{"trash":["~/Library/Caches/First"]}}]},
+      {"token":"none","installed":"1.0"}]}
+    """#.utf8))
+    // No target on the app artifact → brew's default appdir (§88).
+    #expect(info.casks.first { $0.token == "plain" }?.appTargets == ["/Applications/Plain.app"])
+    // app as a bare string rather than the usual array.
+    #expect(info.casks.first { $0.token == "bare" }?.appTargets == ["/Applications/Bare.app"])
+    // uninstall hashes carry no app; only the app artifact counts.
+    #expect(info.casks.first { $0.token == "pair" }?.appTargets == ["/Applications/First.app"])
+    // cask with no artifacts key at all → empty, decoding unaffected.
+    #expect(info.casks.first { $0.token == "none" }?.appTargets == [])
+}
+
 @Test func infoJSON_decode_deprecationFields() throws {
     let info = try InfoSnapshot.decode(Data(#"""
     {"formulae":[{"name":"py","full_name":"homebrew/core/py","installed":[],

@@ -280,6 +280,14 @@ Verified present in `brew commands` but out of scope for brewery (they operate o
   - Versioned names appear as their own keys (`openssl@3`, cask `1password-cli@1`) — treat as package names, not variants.
 - Shipped as `TopInstallsFetcher` (core, behind `TopInstallsFetching` seam + fake for tests); loaded lazily once per launch with a pane-local Refresh (like taps), and a failed re-fetch keeps the last good list visible under the banner.
 
+### 25. Launching installed cask apps (verified 2026-10-31)
+
+- **No command needed.** `brew info --json=v2 --installed` (already run every refresh) carries each cask's `artifacts` array, and the `app` artifact names the launch path: `{"app":["Wireshark.app"],"target":"/Applications/Wireshark.app"}`. The GUI extracts those targets into `BrewItem.appTargets` and launches via `NSWorkspace` — no brew process, no `brew list --cask` round-trip.
+- `artifacts` shapes to expect (all live-verified): `target` is present for apps installed to a non-default appdir but **omitted when the app lands in `/Applications`** (default appdir — fall back to `/Applications/<name>`); `app` is usually a string array but the decoder also accepts a bare string; unrelated artifact dicts (`pkg`, `binary`, `manpage`, `uninstall`, `zap`, `preflight_steps`) share the array and some values are nested objects (a `binary` array embeds `{"target":"agtermctl"}`) — only dicts with an `app` key count.
+- **`brew list --cask <token>` is NOT the launch source**: it lists the *Caskroom staging* files (`/opt/homebrew/Caskroom/<token>/<version>/…`), e.g. the staged `agterm.app`, plus `.pkg`/`.html` helpers — not the `/Applications` target.
+- Binary-only casks have no `app` artifact (verified: `revmux` → only `{"binary":["revmux"],"target":"/opt/homebrew/bin/revmux"}`) — nothing GUI-launchable, so the Open button/double-click/context-menu are absent for them by design.
+- GUI affordances shipped 2026-10-31: **Open** button in the package-page header (installed casks with an app target), **Open** in the row context menu, and **row double-click** launches (single click still just selects; SwiftUI `List` has no native double-click action — a `simultaneousGesture(TapGesture(count: 2))` on the row works alongside selection). A moved/deleted .app → `NSWorkspace.open` returns false → red inline line under the header; the paths shown are as-of-last-refresh.
+
 ## Key HOMEBREW_* variables for the GUI (all from manpage ENVIRONMENT section)
 
 Determinism/query hygiene: `HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_AUTO_UPDATE_SECS` (86400), `HOMEBREW_API_AUTO_UPDATE_SECS` (450), `HOMEBREW_AUTO_UPDATE_QUIET`, `HOMEBREW_NO_UPDATE_REPORT_NEW`, `HOMEBREW_NO_ENV_HINTS`, `HOMEBREW_NO_ANALYTICS`, `HOMEBREW_NO_COLOR`, `HOMEBREW_VERBOSE`, `HOMEBREW_DEBUG`, `HOMEBREW_DEVELOPER`, `HOMEBREW_NO_BOOTSNAP` (if the GUI invokes brew very frequently, Bootsnap cache is the recommended speed-up), `HOMEBREW_LOCK_CONTEXT`.
