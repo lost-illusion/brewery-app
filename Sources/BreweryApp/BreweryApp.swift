@@ -14,6 +14,9 @@ final class AppState {
     let brewFound: Bool
     let changelogDiagnostics: ChangelogDiagnostics
     let versionHistory: VersionHistoryModel
+    let notifications: NotificationsCoordinator
+    /// Bumped by a notification click; ContentView routes it to the Outdated section.
+    var openOutdatedRequested: Date?
 
     init(defaults: UserDefaults = .standard) {
         let brewURL = discoverBrew(searchPaths: Self.brewSearchPaths,
@@ -49,6 +52,19 @@ final class AppState {
             exec: ProcessExecRunner(), github: LiveGitHubJSON()),
             store: HistoryCacheStore(directory: storeDir),
             retention: HistoryCacheRetention(rawValue: defaults.string(forKey: Self.historyRetentionKey) ?? "") ?? .thirtyDays)
+
+        notifications = NotificationsCoordinator(store: UpdateNotifyStore(directory: storeDir),
+                                                defaults: defaults)
+        notifications.onScheduledTick = { [weak self] in
+            guard let self else { return }
+            await self.model.refresh(reason: .manual)
+            self.notifications.evaluate(items: self.model.items)
+        }
+        notifications.onReadyToEvaluate = { [weak self] in
+            guard let self else { return }
+            self.notifications.evaluate(items: self.model.items)
+        }
+        notifications.onOpenOutdated = { [weak self] in self?.openOutdatedRequested = Date() }
     }
 
     static func detectJq() -> Bool {
@@ -61,6 +77,7 @@ final class AppState {
     static let changelogSourceKey = "changelogSource"
     static let githubTokenKey = "githubToken"
     static let historyRetentionKey = "historyCacheRetention"
+    static let notifyKey = "updateNotificationsEnabled"
 }
 
 @main

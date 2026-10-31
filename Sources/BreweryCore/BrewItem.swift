@@ -1,7 +1,7 @@
 import Foundation
 
 public struct BrewItem: Identifiable, Hashable, Codable {
-    public enum Kind: String, Hashable, Codable {
+    public enum Kind: String, Hashable, Codable, Sendable {
         case formula, cask
     }
 

@@ -81,6 +81,14 @@ struct ContentView: View {
                 history.select(new)
             }
         }
+        .onChange(of: app.model.inventoryUpdated) { _, updated in
+            // Every completed inventory refresh — including tap-action and upgrade
+            // re-reads inside the model — flows into the digest check.
+            if updated != nil { app.notifications.evaluate(items: app.model.items) }
+        }
+        .onChange(of: app.openOutdatedRequested) { _, requested in
+            if requested != nil { navigation = .outdated }
+        }
         .task {
             if app.model.state == .idle { await app.model.refresh(reason: .manual) }
         }

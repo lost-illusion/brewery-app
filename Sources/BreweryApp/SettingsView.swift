@@ -11,8 +11,67 @@ struct SettingsView: View {
             Tab("Changelogs", systemImage: "clock.arrow.circlepath") {
                 ChangelogSettingsPane()
             }
+            Tab("Updates", systemImage: "bell") {
+                UpdatesSettingsPane()
+            }
         }
         .frame(width: 460)
+    }
+}
+
+/// Milestone 1 (design option A): digests while brewery runs. The honest limit is
+/// stated here, not buried — app-closed coverage is the launchd milestone.
+private struct UpdatesSettingsPane: View {
+    @Environment(AppState.self) private var app
+    @AppStorage(AppState.notifyKey) private var enabled = false
+
+    var body: some View {
+        Form {
+            Toggle("Notify when packages have newer versions", isOn: $enabled)
+                .onChange(of: enabled) { _, newValue in
+                    app.notifications.setEnabled(newValue)
+                }
+            Text(app.notifications.authorizationSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let message = app.notifications.statusMessage {
+                Text(message).font(.caption).foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section("Digest checks") {
+                Text(statusLine)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if app.notifications.pendingNewCount > 0 {
+                    Text("\(app.notifications.pendingNewCount) new update(s) waiting for the next digest window.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Button("Send test notification") { app.notifications.sendTest() }
+                    .disabled(!enabled)
+            }
+            // Form rows truncate single-line text; fixedSize lets the caption
+            // wrap instead of ending mid-word at the window edge.
+            Text("Checks run while brewery is open — on launch, on window focus, and about once a day in the background. Notifying while the app is closed needs the background agent (planned).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+    }
+
+    private var statusLine: String {
+        var parts: [String] = []
+        if let check = app.notifications.lastCheckAt {
+            parts.append("Last check: \(check.formatted(date: .abbreviated, time: .shortened))")
+        } else {
+            parts.append("No check yet")
+        }
+        if let digest = app.notifications.lastDigestAt {
+            parts.append("last digest \(digest.formatted(date: .abbreviated, time: .shortened))")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 
