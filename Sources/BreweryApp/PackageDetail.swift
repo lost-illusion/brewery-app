@@ -20,6 +20,16 @@ struct PackageDetail: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header(item)
+                    if case .failed(let action, let message) = model.tapAction {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
+                                .font(.callout).foregroundStyle(.red)
+                            Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(.red.opacity(0.12))
+                    }
                     if case .failed(let message) = model.upgrade {
                         Label(message, systemImage: "exclamationmark.octagon.fill")
                             .font(.callout)
@@ -178,6 +188,7 @@ struct PackageDetail: View {
                 if let release = targetRelease(for: item) {
                     noteButton(release)
                 }
+                pinButton(item)
                 updateButton(item)
             }
         }
@@ -235,6 +246,36 @@ struct PackageDetail: View {
                   : "brew update, then brew upgrade \(item.name)")
         default:
             EmptyView()
+        }
+    }
+
+    /// Pin/unpin for installed packages only (brew accepts installed names,
+    /// compat §93). Lives in the header beside Update so the Pinned section
+    /// and the outdated list are one button away from fixing themselves.
+    @ViewBuilder private func pinButton(_ item: BrewItem) -> some View {
+        if !item.installedVersions.isEmpty {
+            Button {
+                Task {
+                    if item.isPinned {
+                        await model.unpinItem(qualified: item.fullName, kind: item.kind)
+                    } else {
+                        await model.pinItem(qualified: item.fullName, kind: item.kind)
+                    }
+                }
+            } label: {
+                Label(item.isPinned ? "Unpin" : "Pin", systemImage: item.isPinned ? "pin.slash" : "pin")
+                    .opacity(model.tapAction == .idle ? 1 : 0)
+                    .overlay {
+                        if model.tapAction != .idle {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.state == .loading || model.upgrade != .idle || model.tapAction != .idle)
+            .help(item.isPinned
+                  ? "brew unpin \(item.fullName) — brew upgrade will include it again"
+                  : "brew pin \(item.fullName) — brew upgrade skips it; dependents may want newer")
         }
     }
 

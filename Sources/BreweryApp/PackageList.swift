@@ -151,6 +151,24 @@ struct PackageList: View {
             } else {
                 List(filtered, selection: $selectedID) { item in
                     PackageRow(item: item)
+                        .contextMenu {
+                            // brew pin accepts installed names only (compat §93);
+                            // preview rows have nothing to pin.
+                            if !item.installedVersions.isEmpty {
+                                Button {
+                                    Task {
+                                        if item.isPinned {
+                                            await model.unpinItem(qualified: item.fullName, kind: item.kind)
+                                        } else {
+                                            await model.pinItem(qualified: item.fullName, kind: item.kind)
+                                        }
+                                    }
+                                } label: {
+                                    Label(item.isPinned ? "Unpin" : "Pin",
+                                          systemImage: item.isPinned ? "pin.slash" : "pin")
+                                }
+                            }
+                        }
                 }
             }
         case .failed:

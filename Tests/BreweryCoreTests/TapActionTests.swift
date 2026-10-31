@@ -289,6 +289,42 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
     #expect(runner.calls.filter { $0.first == "install" }.isEmpty)
 }
 
+// MARK: - Pin / unpin (compat §93)
+
+@MainActor
+@Test func itemPin_runsBrewPinWithKindFlagAndReloadsInventory() async {
+    let (model, runner) = makeHarness(tapResults: ["pin --formula wget": ok("Pinned wget\n")])
+    await model.pinItem(qualified: "wget", kind: .formula)
+    #expect(runner.calls.first == ["pin", "--formula", "wget"])
+    #expect(model.tapAction == .idle)
+    // the pinned flag comes back via the info JSON and drives the Pinned
+    // section + Update buttons, so the inventory must re-read
+    #expect(runner.calls.contains { $0.first == "list" })
+}
+
+@MainActor
+@Test func itemUnpin_usesCaskFlagForCasks() async {
+    let (model, runner) = makeHarness(tapResults: ["unpin --cask wireshark-app": ok("Unpinned wireshark-app\n")])
+    await model.unpinItem(qualified: "wireshark-app", kind: .cask)
+    #expect(runner.calls.first == ["unpin", "--cask", "wireshark-app"])
+    #expect(model.tapAction == .idle)
+}
+
+@MainActor
+@Test func itemPin_surfacesBrewsRefusalVerbatim() async {
+    // brew's real wording for a name it will not pin (not installed)
+    let (model, runner) = makeHarness(tapResults: ["pin --formula nope": fail("Error: Formula 'nope' is not installed.")])
+    await model.loadTaps()
+    await model.pinItem(qualified: "nope", kind: .formula)
+    if case .failed(let action, let message) = model.tapAction {
+        #expect(action == .pinning(qualified: "nope"))
+        #expect(message.contains("not installed"))
+    } else {
+        Issue.record("expected .failed, got \(model.tapAction)")
+    }
+    #expect(runner.calls.filter { $0.first == "list" }.isEmpty) // failed mutation: no inventory re-read
+}
+
 // MARK: - Preview of not-installed packages (compat §22)
 
 @MainActor

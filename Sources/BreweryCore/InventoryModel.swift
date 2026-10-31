@@ -50,6 +50,7 @@ public enum TapAction: Equatable {
     case trusting(name: String), untrusting(name: String)
     case trustingItem(qualified: String), untrustingItem(qualified: String)
     case installing(qualified: String)
+    case pinning(qualified: String), unpinning(qualified: String)
 
     public var label: String {
         switch self {
@@ -60,6 +61,8 @@ public enum TapAction: Equatable {
         case .trustingItem(let q): "Trusting \(q)…"
         case .untrustingItem(let q): "Untrusting \(q)…"
         case .installing(let q): "Installing \(q)…"
+        case .pinning(let q): "Pinning \(q)…"
+        case .unpinning(let q): "Unpinning \(q)…"
         }
     }
 }
@@ -346,12 +349,12 @@ public final class InventoryModel {
     /// re-read because a trusted installed item finally appears in `info --installed` (§43).
     public func trustItem(qualified: String, kind: BrewItem.Kind) async {
         await runTapAction(.trustingItem(qualified: qualified),
-                           args: ["trust", Self.trustFlag(kind), qualified], reloadInventory: true)
+                           args: ["trust", Self.kindFlag(kind), qualified], reloadInventory: true)
     }
 
     public func untrustItem(qualified: String, kind: BrewItem.Kind) async {
         await runTapAction(.untrustingItem(qualified: qualified),
-                           args: ["untrust", Self.trustFlag(kind), qualified], reloadInventory: true)
+                           args: ["untrust", Self.kindFlag(kind), qualified], reloadInventory: true)
     }
 
     /// `brew install -y <tap>/<name>`. -y because ask mode is brew's install default
@@ -363,7 +366,22 @@ public final class InventoryModel {
         await runTapAction(.installing(qualified: qualified), args: ["install", "-y", qualified], reloadInventory: true)
     }
 
-    private static func trustFlag(_ kind: BrewItem.Kind) -> String {
+    /// `brew pin|unpin --formula|--cask <qualified>` (compat §93). brew accepts only
+    /// installed names; the kind flag disambiguates a formula and cask sharing a name.
+    /// reloadInventory because the pin lives in the info JSON `pinned` field and drives
+    /// the Pinned section plus every Update button's disabled state.
+    public func pinItem(qualified: String, kind: BrewItem.Kind) async {
+        await runTapAction(.pinning(qualified: qualified),
+                           args: ["pin", Self.kindFlag(kind), qualified], reloadInventory: true)
+    }
+
+    public func unpinItem(qualified: String, kind: BrewItem.Kind) async {
+        await runTapAction(.unpinning(qualified: qualified),
+                           args: ["unpin", Self.kindFlag(kind), qualified], reloadInventory: true)
+    }
+
+    /// Brew's formula/cask disambiguation flag (trust, pin, unpin all take it).
+    private static func kindFlag(_ kind: BrewItem.Kind) -> String {
         kind == .formula ? "--formula" : "--cask"
     }
 
