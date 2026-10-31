@@ -2,12 +2,16 @@
 
 Status: **milestones 1–2 shipped 2026-10-31** (option A while-app-running digests +
 option B launchd agent: `UpdateNotifications.swift` core + `NotificationsCoordinator` +
-Settings → Updates tab + `Main.swift` headless entry + `UpdateCheckLock` + bundle
-LaunchAgent plist). Live verification 2026-10-31: Settings toggle → launchd shows the job
-(`submitted by smd`, `managed_by com.apple.xpc.ServiceManagement`, program identifier
-`Contents/MacOS/Brewery`); `launchctl kickstart` fired the headless check (log line
-"check done: inventory ok, digest check evaluated", `last exit code = 0`); registration
-survived a full bundle rebuild. Gates 4–6 and gate 3's tail (logout/login) still open.
+Settings → Updates tab + `Main.swift` headless entry + `UpdateCheckLock`). Transport
+decision changed same day: the SMAppService/BundleProgram submission **worked first, then
+failed unrepeatably** under ad-hoc signing (dyld SIGKILL "Launch Constraint Violation" at
+exec; submission degraded to `spawn failed` / exit 78 while SMAppService status still read
+"registered"). The shipped design is now the doc's legacy fallback: an app-managed plain
+LaunchAgent in `~/Library/LaunchAgents` with an absolute `ProgramArguments` path, reloaded
+at GUI launch. Verified end to end: bootstrap + kickstart on the freshly rebuilt binary →
+headless check runs, `last exit code = 0`. Remaining open: gate 4 (sleep catch-up), gate 5's
+crash-window tail, gate 6's offline sub-case, and login-time auto-load of the LaunchAgent
+(legacy behavior, expected — untested).
 Architecture advice from a codex advisory session against this repo. **Gate 1
 (signing/authorization) passed 2026-10-31** — evidence below.
 
@@ -36,12 +40,19 @@ open Brewery and press refresh; a notification click lands the user in the Outda
 | B. LaunchAgent installed from Settings, same binary in headless mode | yes | `StartCalendarInterval` coalesces missed sleep runs into one catch-up after wake (Darwin 27 launchd manpage); `StartInterval` misses them; shutdown does not replay | target design |
 | C. cron entry from Settings | yes | missed runs are skipped; Apple discourages programmatic crontab editing; no app integration | **rejected** — no advantage over B |
 
-B registration, modern path: plist inside `Brewery.app/Contents/Library/LaunchAgents` with a
-relative `BundleProgram`, registered via `SMAppService.agent(plistName:)` — Apple's sanctioned
-replacement for writing into `~/Library/LaunchAgents`. Legacy fallback if `SMAppService` trips
-on ad-hoc signing: write `~/Library/LaunchAgents/com.illusion.brewery.updates.plist` and
-`launchctl bootstrap gui/<uid>`. No admin approval flow (that is LaunchDaemon-only), but the
-user sees and can disable it under System Settings → Login Items & Extensions.
+B registration — modern path tried, legacy path shipped. Tried first: plist inside
+`Brewery.app/Contents/Library/LaunchAgents` with a relative `BundleProgram`, registered via
+`SMAppService.agent(plistName:)`. It registered and fired (gate-3 evidence below) but began
+killing the spawned binary after several rebuild/re-sign cycles — dyld SIGKILL, "Namespace
+CODESIGNING, Code 4, Launch Constraint Violation" — and the submission wedged into
+`spawn failed` (exit 78 EX_CONFIG) while SMAppService status kept reading "registered".
+Shipped instead: the fallback the doc always reserved — `NotificationsCoordinator.writeAgent`
+writes `~/Library/LaunchAgents/com.illusion.brewery.updates.plist` (absolute
+`ProgramArguments` = current executable + `--check-updates`) and runs
+`launchctl bootout … ; bootstrap gui/<uid> <plist>`; GUI launch re-asserts it whenever the
+plist exists, so rebuilds and app moves self-heal. Legacy agents load at every login by
+launchd itself (expected, untested). No admin approval flow (LaunchDaemon-only); background
+items appear under System Settings → Login Items & Extensions for user-level disabling.
 
 **Recommendation: B + A hybrid, staged.** Milestone 1 = A alone (GUI running only, clearly
 labeled). Milestone 2 = the daily one-shot agent; the GUI reuses the same checker.
@@ -148,24 +159,32 @@ Consequence: milestone 1 needs **no new signing identity**.
    process posted visible banners). On the shipped bundle the kickstart runs evaluated the
    digest but announced nothing — zero eligible pairs on this machine right now, so a real
    digest from the shipped agent waits for a genuine pending update.
-3. **Registration gate — PASSED (core) 2026-10-31** — probe evidence above, then live on the
-   shipped bundle: Settings toggle → `launchctl print` shows the job (smd-submitted,
-   ServiceManagement-managed), `kickstart` ran the real agent → headless log "check done:
-   inventory ok, digest check evaluated", state file `lastCheckAt` advanced, `last exit code = 0`.
-   logout/login survival and user-disable state still untested.
+3. **Registration gate — PASSED (core) 2026-10-31, transport since changed** — probe evidence
+   above, then live on the shipped bundle: Settings toggle → `launchctl print` shows the job,
+   `kickstart` ran the real agent (headless log, state `lastCheckAt` advanced, `last exit code = 0`).
+   That SMAppService submission later wedged (see option B above: codesign kill → `spawn failed`);
+   the plain-LaunchAgent replacement re-registered via the app's own `writeAgent` + GUI-launch
+   re-assert and kickstart fired again, `last exit code = 0`. Login-time auto-load of the legacy
+   agent and user-disable state still untested.
 4. **Sleep gate** — sleep across the scheduled time; expect exactly one catch-up run.
 5. **Concurrency gate — PASSED (core) 2026-10-31** — two headless processes launched
    simultaneously: one logged "skipped: another brewery check holds the lock", the other
-   completed ("check done"). Same flock guards the GUI's `evaluate()`. Still open: the crash
-   window between UN post and state write (exactly-once is not guaranteed — measure the
-   duplicate blast radius).
-6. **Data gate** — stale manifest/offline, tap lag, malformed JSON, pinned, greedy casks,
-   state-write failure.
-7. **Lifecycle gate — PASSED (core) 2026-10-31** — after registration, `make-app-bundle.sh`
-   deleted/recreated/re-signed the bundle at the same path; `launchctl print` still showed the
-   job (same `submitted by smd` entry), a kickstart then ran the *rebuilt* binary (new log line,
-   `last exit code = 0`). Caveat: same-path rebuild only — moving the app to a new location is
-   expected to need re-registration, and the one-stable-location decision is still open.
+   completed ("check done"). Same flock guards the GUI's `evaluate()`. Same-day follow-up: the
+   headless entry's *outer* lock was removed — flock blocks per-open-file-description, so the
+   outer+inner pair had been self-blocking and silently no-op'ing every headless digest check.
+   Still open: the crash window between UN post and state write (exactly-once is not
+   guaranteed — measure the duplicate blast radius).
+6. **Data gate — PASSED (core) 2026-10-31** — real state file replaced with garbage, agent
+   kicked: survived (exit 0), did not clobber the file, and the new `evaluateReporting` logged
+   "notifications state is unreadable — announcements stay off until it is fixed"; restoring the
+   file produced a normal run. Corrupt→nil unit tests already covered. Open: offline / stale
+   manifest behavior of the agent itself.
+7. **Lifecycle gate — PASSED (core) 2026-10-31** — `make-app-bundle.sh` deletes/recreates/
+   re-signs the bundle every build. Under SMAppService this initially survived but eventually
+   wedged the job (the codesign findings above are that story). Under the shipped plain-LaunchAgent
+   transport it is designed away: GUI launch rewrites the plist with the current executable path
+   and reloads it, verified — after a rebuild, the app-submitted job fired with `last exit
+   code = 0`; app relocation is covered the same way (the plist is rewritten with the new path).
 
 ## Open questions
 

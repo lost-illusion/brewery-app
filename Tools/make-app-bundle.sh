@@ -10,29 +10,14 @@ sh Tools/make-icon.sh
 
 APP=build/Brewery.app
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/BreweryApp "$APP/Contents/MacOS/Brewery"
 cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-# Milestone 2 background agent: registered through SMAppService from Settings →
-# Updates; launchd starts the main executable, which detects the agent label via
-# XPC_SERVICE_NAME and runs the headless checker instead of the UI.
-cat > "$APP/Contents/Library/LaunchAgents/com.illusion.brewery.updates.plist" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>          <string>com.illusion.brewery.updates</string>
-    <key>BundleProgram</key>  <string>Contents/MacOS/Brewery</string>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Hour</key>       <integer>10</integer>
-        <key>Minute</key>     <integer>0</integer>
-    </dict>
-    <key>ProcessType</key>    <string>Background</string>
-</dict>
-</plist>
-EOF
+# The milestone-2 background agent is NOT bundled: the app writes a plain
+# LaunchAgent plist into ~/Library/LaunchAgents pointing at this executable
+# (see NotificationsCoordinator.writeAgent — the SMAppService/BundleProgram
+# variant was abandoned, design doc gate 3 has the evidence).
 
 cat > "$APP/Contents/Info.plist" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>

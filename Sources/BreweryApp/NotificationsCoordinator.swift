@@ -2,7 +2,6 @@ import AppKit
 import BreweryCore
 import Foundation
 import Observation
-import ServiceManagement
 import UserNotifications
 
 // File-scope ids: read from nonisolated UN callbacks, which cannot touch the
@@ -41,7 +40,8 @@ final class NotificationsCoordinator: NSObject {
     private let defaults: UserDefaults
     private let activity: NSBackgroundActivityScheduler
     private var evaluating = false
-    private var isAuthorized = false
+    // Readable module-wide (headless entry polls it before evaluate).
+    private(set) var isAuthorized = false
     /// Set on enable: the backlog digest fires once authorization is proven, so
     /// pairs are never marked announced while a prompt is still unanswered.
     private var wantsBacklogEvaluate = false
@@ -68,6 +68,15 @@ final class NotificationsCoordinator: NSObject {
         if enabled && !headless { startActivity() }
         refreshAuthorizationSummary()
         refreshBackgroundAgentStatus()
+        if !headless { reassertBackgroundAgent() }
+    }
+
+    /// A rebuild or app move makes an old plist's Program path stale; re-assert
+    /// (rewrite + reload) at GUI launch whenever the consent marker — the plist
+    /// file itself — exists. Never from the headless agent.
+    private func reassertBackgroundAgent() {
+        guard FileManager.default.fileExists(atPath: agentPlistURL.path) else { return }
+        writeAgent(on: true)
     }
 
     func setEnabled(_ on: Bool) {
@@ -92,38 +101,98 @@ final class NotificationsCoordinator: NSObject {
         }
     }
 
-    // MARK: - Background agent (milestone 2): the launchd one-shot checker
+    // MARK: - Background agent (milestone 2): an app-managed plain LaunchAgent
+    //
+    // The SMAppService/BundleProgram variant (docs/design gate-3 evidence) worked
+    // first and then failed unrepeatably: dyld began SIGKILLing the launchd-spawned
+    // binary at exec ("Namespace CODESIGNING, Code 4, Launch Constraint Violation"
+    // against the ad-hoc identity) and the submission degraded to `spawn failed`
+    // / exit 78 EX_CONFIG while SMAppService status still claimed "registered".
+    // A legacy LaunchAgent in ~/Library/LaunchAgents with an absolute Program path
+    // was verified working on the same machine (kickstart exit 0) and self-heals
+    // across rebuilds: the plist is rewritten with the current executable path and
+    // reloaded at GUI launch.
 
-    private static let agentPlistName = "com.illusion.brewery.updates.plist"
+    private static let agentLabel = "com.illusion.brewery.updates"
 
-    func setBackgroundAgent(_ on: Bool) {
-        let service = SMAppService.agent(plistName: Self.agentPlistName)
+    private var agentPlistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents/\(Self.agentLabel).plist")
+    }
+
+    func setBackgroundAgent(_ on: Bool) { writeAgent(on: on) }
+
+    /// Consent marker: the plist file. On → write current binary's plist, bootout
+    /// any stale submission, bootstrap fresh. Off → bootout + delete the file.
+    private func writeAgent(on: Bool) {
+        if !on {
+            runLaunchctl(["bootout", "gui/\(getuid())/\(Self.agentLabel)"])
+            try? FileManager.default.removeItem(at: agentPlistURL)
+            refreshBackgroundAgentStatus()
+            return
+        }
+        guard let exe = Bundle.main.executablePath else {
+            statusMessage = "background agent: could not locate the app executable"
+            refreshBackgroundAgentStatus()
+            return
+        }
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key> <string>\(Self.agentLabel)</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(exe)</string>
+                <string>--check-updates</string>
+            </array>
+            <key>StartCalendarInterval</key>
+            <dict>
+                <key>Hour</key>   <integer>10</integer>
+                <key>Minute</key> <integer>0</integer>
+            </dict>
+            <key>ProcessType</key> <string>Background</string>
+        </dict>
+        </plist>
+        """
         do {
-            if on { try service.register() } else { try service.unregister() }
+            try FileManager.default.createDirectory(at: agentPlistURL.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try plist.write(to: agentPlistURL, atomically: true, encoding: .utf8)
         } catch {
-            statusMessage = "background agent: \(error.localizedDescription)"
+            statusMessage = "background agent: could not write the LaunchAgent plist — \(error.localizedDescription)"
+            refreshBackgroundAgentStatus()
+            return
+        }
+        runLaunchctl(["bootout", "gui/\(getuid())/\(Self.agentLabel)"]) // idempotent reload
+        let (status, output) = runLaunchctl(["bootstrap", "gui/\(getuid())", agentPlistURL.path])
+        if status != 0 {
+            statusMessage = "background agent: launchctl bootstrap failed (\(status)) — \(output.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
         refreshBackgroundAgentStatus()
     }
 
     private func refreshBackgroundAgentStatus() {
-        let service = SMAppService.agent(plistName: Self.agentPlistName)
-        // SDK 27 renamed the status cases (old `.registered` is now `.enabled`;
-        // C-names bridged to lowerCamelCase).
-        switch service.status {
-        case .enabled:
-            backgroundAgentRegistered = true
-            backgroundAgentSummary = "background agent: registered — checks run daily even while brewery is closed"
-        case .requiresApproval:
-            backgroundAgentRegistered = false
-            backgroundAgentSummary = "background agent: needs approval — allow brewery under System Settings → Login Items & Extensions"
-        case .notRegistered:
-            backgroundAgentRegistered = false
-            backgroundAgentSummary = "background agent: not registered"
-        default:
-            backgroundAgentRegistered = false
-            backgroundAgentSummary = "background agent: status unavailable"
-        }
+        let (status, _) = runLaunchctl(["print", "gui/\(getuid())/\(Self.agentLabel)"])
+        backgroundAgentRegistered = status == 0
+        backgroundAgentSummary = status == 0
+            ? "background agent: registered — checks daily at 10:00 and at login, even while brewery is closed"
+            : "background agent: not registered"
+    }
+
+    @discardableResult
+    private func runLaunchctl(_ args: [String]) -> (Int32, String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do { try process.run() } catch { return (-1, "could not run launchctl") }
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (process.terminationStatus, String(data: data, encoding: .utf8) ?? "")
     }
 
     /// This SDK has no suspend/resume: scheduling is the enable switch and
@@ -138,6 +207,22 @@ final class NotificationsCoordinator: NSObject {
                 completion(.finished)
             }
         }
+    }
+
+    /// Headless diagnostic path: same guards as evaluate(), but every refusal
+    /// comes back as a string for the log instead of vanishing silently — a
+    /// short-lived process must be diagnosable from its log alone (gate 6).
+    func evaluateReporting(items: [BrewItem]) -> String {
+        if !enabled { return "refused: notifications disabled" }
+        if !isAuthorized { return "refused: authorization not confirmed" }
+        if evaluating { return "refused: already evaluating" }
+        if writesBroken { return "refused: state writes broken" }
+        guard let probe = UpdateCheckLock.tryAcquire(directory: storeDirectory) else {
+            return "refused: another brewery check holds the lock"
+        }
+        probe.release() // free for evaluate()'s own acquire immediately after
+        evaluate(items: items)
+        return statusMessage ?? "evaluated, no refusal"
     }
 
     /// Called by the UI after every refresh that produced new inventory.

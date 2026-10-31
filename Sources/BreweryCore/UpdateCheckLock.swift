@@ -6,6 +6,9 @@ import Foundation
 /// file with flock, never unlinked, so the two processes keep the same inode
 /// and never write notification state at the same time. Failing to acquire is a
 /// normal outcome — the other process is mid-check and this cycle is skipped.
+/// Cross-process advisory lock. flock is per-open-file-description: a second fd
+/// on the same file blocks even within the same process — callers must hold one
+/// lock per check, not nest them (verified 2026-10-31).
 public struct UpdateCheckLock: Sendable {
     private let fd: Int32
 

@@ -63,18 +63,25 @@ final class HeadlessDelegate: NSObject, NSApplicationDelegate {
             append("skipped: notifications disabled")
             return
         }
-        guard let lock = UpdateCheckLock.tryAcquire(directory: storeDir) else {
-            append("skipped: another brewery check holds the lock")
-            return
-        }
-        defer { lock.release() }
+        // No outer lock here on purpose: evaluate() serializes through the
+        // coordinator's own UpdateCheckLock, and flock is per-open-file-description —
+        // a second fd in the SAME process self-blocks (verified 2026-10-31: an outer
+        // headless lock made every inner acquire fail and the digest check no-op).
 
         let app = AppState(defaults: .standard, headless: true)
         await app.model.refresh(reason: .manual)
-        app.notifications.evaluate(items: app.model.items)
+        // evaluate() refuses while the coordinator's async UN-settings callback has
+        // not confirmed authorization — in a short-lived process it can lag the
+        // refresh (observed 2026-10-31: silent no-op). Wait, then report honestly.
+        var waited = 0.0
+        while !app.notifications.isAuthorized && waited < 10 {
+            try? await Task.sleep(for: .seconds(0.25))
+            waited += 0.25
+        }
+        let outcome = app.notifications.evaluateReporting(items: app.model.items)
         // Exit-after-async-post is the gate-2 failure mode codex warned about:
         // give the UN delivery callback time to complete before ending the run loop.
         try? await Task.sleep(for: .seconds(3))
-        append("check done: inventory \(app.model.state == .ready ? "ok" : "failed"), digest check evaluated")
+        append("check done: inventory \(app.model.state == .ready ? "ok" : "failed"), digest: \(outcome)")
     }
 }
