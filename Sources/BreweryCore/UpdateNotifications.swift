@@ -94,7 +94,11 @@ public enum DigestAction: Sendable, Equatable {
     /// New pairs exist but the 24 h digest window has not elapsed — they stay
     /// unannounced and the next eligible check carries them.
     case deferredNew
+    /// No new pairs, but some announced pairs are still outdated — the delivered
+    /// digest still describes reality and must stay in Notification Center.
     case nothing
+    /// Nothing eligible at all: any delivered digest is stale and may be withdrawn.
+    case backlogResolved
 }
 
 public struct DigestOutcome: Sendable {
@@ -117,7 +121,7 @@ public func digestDecision(current: Set<UpdateKey>, stored: UpdateNotifyState,
 
     guard !new.isEmpty else {
         next.announced = stored.announced.intersection(current)
-        return DigestOutcome(action: .nothing, newState: next)
+        return DigestOutcome(action: current.isEmpty ? .backlogResolved : .nothing, newState: next)
     }
     if let last = stored.lastDigestAt, now.timeIntervalSince(last) < interval {
         return DigestOutcome(action: .deferredNew, newState: next)

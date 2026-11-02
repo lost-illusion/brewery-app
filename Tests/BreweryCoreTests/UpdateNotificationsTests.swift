@@ -53,6 +53,18 @@ private func key(_ kind: BrewItem.Kind, _ name: String, _ version: String) -> Up
     #expect(outcome.newState?.announced == stored.announced)
 }
 
+/// Regression: a still-outdated, already-announced backlog is NOT "resolved" —
+/// the coordinator withdrew the delivered digest on this outcome, so a headless
+/// 10:00 digest vanished the moment the GUI checked again.
+@Test func decision_partiallyResolvedBacklogIsNotResolved() {
+    var stored = UpdateNotifyState()
+    stored.announced = [key(.formula, "ace", "8.1.0"), key(.cask, "wi", "4.4.6")]
+    stored.lastDigestAt = Date().addingTimeInterval(-60)
+    let outcome = digestDecision(current: [key(.cask, "wi", "4.4.6")], stored: stored, now: Date())
+    #expect(outcome.action == .nothing)
+    #expect(outcome.newState?.announced == [key(.cask, "wi", "4.4.6")])
+}
+
 @Test func decision_versionBumpRefiresEvenWithSameTotal() {
     var stored = UpdateNotifyState()
     stored.announced = [key(.formula, "ace", "8.1.0")]
@@ -91,7 +103,7 @@ private func key(_ kind: BrewItem.Kind, _ name: String, _ version: String) -> Up
     stored.announced = [key(.formula, "ace", "8.1.0")]
     stored.lastDigestAt = Date().addingTimeInterval(-100_000)
     let cleared = digestDecision(current: [], stored: stored, now: Date())
-    #expect(cleared.action == .nothing)
+    #expect(cleared.action == .backlogResolved)
     #expect(cleared.newState?.announced.isEmpty == true)
     // Same pair outdated again later: it is "new" once more.
     let again = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: cleared.newState!, now: Date())

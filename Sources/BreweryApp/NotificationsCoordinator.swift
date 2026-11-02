@@ -65,6 +65,12 @@ final class NotificationsCoordinator: NSObject {
         // The delegate is installed even when disabled: it only routes clicks,
         // and a click that cold-launches the app must reach the routing hook.
         UNUserNotificationCenter.current().delegate = self
+        // Seed the Settings status line from durable state, or every relaunch
+        // reads "No check yet" despite a history of checks.
+        if let stored = store.load() {
+            lastCheckAt = stored.lastCheckAt
+            lastDigestAt = stored.lastDigestAt
+        }
         if enabled && !headless { startActivity() }
         refreshAuthorizationSummary()
         refreshBackgroundAgentStatus()
@@ -177,7 +183,7 @@ final class NotificationsCoordinator: NSObject {
         let (status, _) = runLaunchctl(["print", "gui/\(getuid())/\(Self.agentLabel)"])
         backgroundAgentRegistered = status == 0
         backgroundAgentSummary = status == 0
-            ? "background agent: registered — checks daily at 10:00 and at login, even while brewery is closed"
+            ? "background agent: registered — checks daily at 10:00 (or on wake if asleep then), even while brewery is closed"
             : "background agent: not registered"
     }
 
@@ -221,22 +227,25 @@ final class NotificationsCoordinator: NSObject {
             return "refused: another brewery check holds the lock"
         }
         probe.release() // free for evaluate()'s own acquire immediately after
-        evaluate(items: items)
-        return statusMessage ?? "evaluated, no refusal"
+        return evaluate(items: items) ?? "refused: evaluate guard (state changed mid-check)"
     }
 
     /// Called by the UI after every refresh that produced new inventory.
-    func evaluate(items: [BrewItem]) {
-        guard enabled, isAuthorized, !evaluating, !writesBroken else { return }
+    /// Returns a one-line account of what happened (headless log); nil = guard refusal.
+    @discardableResult
+    func evaluate(items: [BrewItem]) -> String? {
+        guard enabled, isAuthorized, !evaluating, !writesBroken else { return nil }
         evaluating = true
         defer { evaluating = false }
         // Serialize with the launchd headless check (design §Scheduling & Homebrew safety).
-        guard let lock = UpdateCheckLock.tryAcquire(directory: storeDirectory) else { return }
+        guard let lock = UpdateCheckLock.tryAcquire(directory: storeDirectory) else {
+            return "refused: another brewery check holds the lock"
+        }
         defer { lock.release() }
 
         guard let stored = store.load() else {
             statusMessage = "notifications state is unreadable — announcements stay off until it is fixed"
-            return
+            return statusMessage
         }
         let current = eligibleUpdateKeys(items: items)
         let outcome = digestDecision(current: current, stored: stored, now: Date())
@@ -246,22 +255,29 @@ final class NotificationsCoordinator: NSObject {
             } catch {
                 writesBroken = true
                 statusMessage = "could not write notifications state — announcements paused"
-                return
+                return statusMessage
             }
             lastCheckAt = newState.lastCheckAt
         }
         switch outcome.action {
-        case .announce(let text, _):
+        case .announce(let text, let total):
             pendingNewCount = 0
             post(title: text.title, body: text.body, identifier: digestIdentifier)
-            lastDigestAt = Date()
+            lastDigestAt = outcome.newState?.lastDigestAt ?? Date()
+            return "announced: \(total) eligible"
         case .deferredNew:
             pendingNewCount = current.subtracting(stored.announced).count
+            return "deferred: \(pendingNewCount) new within the digest window"
         case .nothing:
+            // Already-announced pairs are still outdated: the delivered digest is
+            // still accurate and stays in Notification Center.
             pendingNewCount = 0
-            // Nothing pending: a delivered digest describing a since-resolved
-            // backlog is noise sitting in Notification Center (design).
+            return "nothing new: \(current.count) eligible, all already announced"
+        case .backlogResolved:
+            pendingNewCount = 0
+            // Nothing outdated any more: a delivered digest is now stale noise (design).
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [digestIdentifier])
+            return "nothing eligible"
         }
     }
 
@@ -324,12 +340,13 @@ extension NotificationsCoordinator: @MainActor UNUserNotificationCenterDelegate 
         completionHandler()
     }
 
-    // Called only while brewery is frontmost. Digests stay hidden there (the
-    // user is already looking at the data — design), but a test notification
-    // must always present, or pressing "test" inside the app looks broken.
+    // Called only while brewery is frontmost — which is exactly when the GUI's
+    // launch/focus checks run. Returning [] there dropped the digest entirely
+    // (no banner, no Notification Center entry) while its pairs were already
+    // persisted as announced, so it could never fire again. Always present.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
                                            willPresent notification: UNNotification,
                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler(notification.request.identifier == testIdentifier ? [.banner] : [])
+        completionHandler([.banner, .list])
     }
 }
