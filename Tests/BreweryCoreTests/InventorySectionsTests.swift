@@ -18,9 +18,10 @@ private func fixtureItems() throws -> [BrewItem] {
 @Test func sections_countsMatchDesignSnapshot() throws {
     let rows = try fixtureItems()
     let counts = sidebarCounts(rows, greedy: false)
+    // .formulae/.casks are no longer Section cases (kind moved to KindFilter);
+    // allCases is the sidebar's row list, so it must not carry them.
+    #expect(Section.allCases.count == 6)
     #expect(counts[.all] == 5)
-    #expect(counts[.formulae] == 2)
-    #expect(counts[.casks] == 3)
     #expect(counts[.outdated] == 0) // everything upToDate or unknown, nothing counted
     #expect(counts[.pinned] == 0)
     #expect(counts[.deprecated] == 0)
@@ -49,5 +50,17 @@ private func fixtureItems() throws -> [BrewItem] {
     let filtered = items(rows, in: .all, query: "ral", greedy: false)
     #expect(filtered.map(\.name) == ["ralphex", "revmux"]) // ralphex by name, revmux by desc "parallel" — substring over name + desc
     #expect(items(rows, in: .all, query: nil, greedy: false).count == 5)
-    #expect(items(rows, in: .casks, query: "WIRE", greedy: false).map(\.name) == ["wireshark-app"]) // section + filter compose
+}
+
+@Test func sections_kindFilterReplacesPerKindSections() throws {
+    let rows = try fixtureItems()
+    #expect(items(rows, kind: .all).count == 5)
+    #expect(items(rows, kind: .formulae).count == 2)
+    #expect(items(rows, kind: .casks).count == 3)
+    // composes with search (the old section+filter composition, now kind+filter)
+    #expect(items(items(rows, in: .all, query: "WIRE", greedy: false), kind: .casks)
+        .map(\.name) == ["wireshark-app"])
+    // kind filter feeds back into the same name/desc pipeline, both directions
+    #expect(items(items(rows, kind: .casks), in: .all, query: "ral", greedy: false)
+        .map(\.name) == ["revmux"])
 }

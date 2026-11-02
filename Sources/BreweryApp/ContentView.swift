@@ -8,6 +8,9 @@ struct ContentView: View {
     @Environment(AppState.self) private var app
     @Environment(\.scenePhase) private var scenePhase
     @State private var navigation: BrewSection = .all
+    // Kind segment state lives here (not in PackageList) so it survives sidebar
+    // switches; only the Installed pane reads it.
+    @State private var kindFilter: KindFilter = .all
     @State private var query = ""
     @State private var selectedID: String?
     @State private var selectedTapID: String?
@@ -45,10 +48,13 @@ struct ContentView: View {
                                  selectedTapID: $selectedTapID)
                             .navigationTitle("Taps")
                     default:
-                        PackageList(section: navigation, query: $query, selectedID: $selectedID,
+                        // No title here: it only repeated the sidebar's
+                        // selection. The Installed pane's toolbar carries the kind
+                        // segment instead (PackageList, .principal).
+                        PackageList(section: navigation, kindFilter: $kindFilter,
+                                    query: $query, selectedID: $selectedID,
                                     model: app.model, jqAvailable: app.jqAvailable,
                                     history: $history)
-                            .navigationTitle(navigation.title)
                     }
                 } detail: {
                     switch navigation {
@@ -111,8 +117,6 @@ extension BrewSection {
     var title: String {
         switch self {
         case .all: "Installed"
-        case .formulae: "Formulae"
-        case .casks: "Casks"
         case .outdated: "Outdated"
         case .pinned: "Pinned"
         case .deprecated: "Deprecated"
@@ -124,8 +128,6 @@ extension BrewSection {
     var icon: String {
         switch self {
         case .all: "list.bullet"
-        case .formulae: "cube.box"
-        case .casks: "shippingbox"
         case .outdated: "arrow.up.circle"
         case .pinned: "pin"
         case .deprecated: "exclamationmark.triangle"

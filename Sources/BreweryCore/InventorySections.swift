@@ -3,7 +3,32 @@ import Foundation
 public enum Section: String, CaseIterable {
     // Declaration order is the sidebar row order (Sidebar iterates allCases).
     // topInstalls leads; raw values stay stable if the order changes again.
-    case topInstalls, all, formulae, casks, outdated, pinned, deprecated, taps
+    // .formulae/.casks sidebar rows are retired — kind is an Installed-pane
+    // filter (KindFilter), not a sidebar section.
+    case topInstalls, all, outdated, pinned, deprecated, taps
+}
+
+/// The Installed pane's kind segment (All | Formulae | Casks). Separate from
+/// Section on purpose: it composes with the section + search instead of being
+/// a navigable pane of its own.
+public enum KindFilter: String, CaseIterable {
+    case all, formulae, casks
+
+    public var title: String {
+        switch self {
+        case .all: "All"
+        case .formulae: "Formulae"
+        case .casks: "Casks"
+        }
+    }
+}
+
+public func items(_ items: [BrewItem], kind: KindFilter) -> [BrewItem] {
+    switch kind {
+    case .all: items
+    case .formulae: items.filter { $0.kind == .formula }
+    case .casks: items.filter { $0.kind == .cask }
+    }
 }
 
 /// Local filtering only — never re-queries brew (spec Goal 5).
@@ -20,8 +45,6 @@ public func sidebarCounts(_ items: [BrewItem], greedy: Bool) -> [Section: Int] {
 private func matchesSection(_ item: BrewItem, _ section: Section, greedy: Bool) -> Bool {
     switch section {
     case .all: true
-    case .formulae: item.kind == .formula
-    case .casks: item.kind == .cask
     case .outdated:
         switch item.outdated {
         case .updateAvailable: true

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PackageList: View {
     let section: BrewSection
+    @Binding var kindFilter: KindFilter
     @Binding var query: String
     @Binding var selectedID: String?
     let model: InventoryModel
@@ -11,8 +12,21 @@ struct PackageList: View {
     @State private var confirmUpdateAll = false
 
     private var filtered: [BrewItem] {
-        items(model.items, in: section, query: query.isEmpty ? nil : query,
-              greedy: model.settings.greedyOutdated)
+        let rows = items(model.items, in: section, query: query.isEmpty ? nil : query,
+                         greedy: model.settings.greedyOutdated)
+        // The kind segment only governs the Installed pane; other sections
+        // already filter by their own rule.
+        return section == .all ? items(rows, kind: kindFilter) : rows
+    }
+
+    private var emptyMessage: String {
+        if !query.isEmpty { return "No matches for “\(query)”" }
+        guard section == .all else { return "No packages in this section" }
+        switch kindFilter {
+        case .all: return "No packages installed"
+        case .formulae: return "No formulae installed"
+        case .casks: return "No casks installed"
+        }
     }
 
     /// "Update All" acts on everything brew considers outdated, not the
@@ -38,6 +52,18 @@ struct PackageList: View {
                 """)
         }
         .toolbar {
+            if section == .all {
+                // Replaces the removed column title: principal placement sits
+                // exactly where the (sidebar-duplicated) title used to render.
+                ToolbarItem(placement: .principal) {
+                    Picker("Package kind", selection: $kindFilter) {
+                        ForEach(KindFilter.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    .accessibilityLabel("Filter installed packages by kind")
+                }
+            }
             // Detail-page history sits left of Refresh in the same trailing
             // cluster; write-back to selectedID is no-op in the history
             // (ContentView tracks it via onChange).
@@ -144,10 +170,7 @@ struct PackageList: View {
             skeleton
         case .ready, .loading:
             if filtered.isEmpty {
-                ContentUnavailableView(query.isEmpty
-                    ? "No packages in this section"
-                    : "No matches for “\(query)”",
-                    systemImage: "binoculars")
+                ContentUnavailableView(emptyMessage, systemImage: "binoculars")
             } else {
                 List(filtered, selection: $selectedID) { item in
                     PackageRow(item: item)
