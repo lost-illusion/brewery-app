@@ -31,7 +31,7 @@ struct ContentView: View {
                     sidebar
                 } detail: {
                     TopInstallsList(model: app.model, selectedID: $selectedID)
-                        .navigationTitle(navigation.title)
+                        .navigationTitle("") // header space blank, like the inventory columns
                 }
             } else {
                 NavigationSplitView {
@@ -46,15 +46,16 @@ struct ContentView: View {
                     case .taps:
                         TapsList(model: app.model, jqAvailable: app.jqAvailable,
                                  selectedTapID: $selectedTapID)
-                            .navigationTitle("Taps")
+                            .navigationTitle("") // header space blank, like the inventory columns
                     default:
-                        // No title here: it only repeated the sidebar's
+                        // No navigationTitle here: it only repeated the sidebar's
                         // selection. The Installed pane's toolbar carries the kind
                         // segment instead (PackageList, .principal).
                         PackageList(section: navigation, kindFilter: $kindFilter,
                                     query: $query, selectedID: $selectedID,
                                     model: app.model, jqAvailable: app.jqAvailable,
                                     history: $history)
+                            .navigationTitle("") // pin it blank; an absent title falls back to the window title
                     }
                 } detail: {
                     switch navigation {

@@ -16,7 +16,10 @@ struct Sidebar: View {
                 rowLabel(for: section, counts: counts)
             }
         }
-        .navigationTitle("brewery")
+        // No navigationTitle: with the inventory columns untitled, macOS 26
+        // renders this window title as a large fallback header at the top of
+        // the content column. The header space stays intentionally blank.
+        .navigationTitle("")
         .safeAreaInset(edge: .bottom) { footer }
     }
 
