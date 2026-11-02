@@ -21,7 +21,7 @@ struct Sidebar: View {
     }
 
     /// Badge per section: taps counts third-party taps only (official ones are
-    /// the baseline, not something the user added; 0 until taps load). Brew is
+    /// the baseline, not something the user added; 0 until taps load). Chart is
     /// skipped entirely — its list is always the same fixed top 10, so a count
     /// there would carry no information (and SwiftUI has no "no Int badge"
     /// overload to express it).

@@ -1,7 +1,9 @@
 import Foundation
 
 public enum Section: String, CaseIterable {
-    case all, formulae, casks, outdated, pinned, deprecated, taps, topInstalls
+    // Declaration order is the sidebar row order (Sidebar iterates allCases).
+    // topInstalls leads; raw values stay stable if the order changes again.
+    case topInstalls, all, formulae, casks, outdated, pinned, deprecated, taps
 }
 
 /// Local filtering only — never re-queries brew (spec Goal 5).

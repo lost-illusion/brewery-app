@@ -15,7 +15,7 @@ struct ContentView: View {
     @State private var showBrewSetup = false
 
     var body: some View {
-        // Brew is a two-column layout — sidebar + one full-width card grid,
+        // Chart is a two-column layout — sidebar + one full-width card grid,
         // App Store style — while every other section keeps the three-column
         // inventory shape. A NavigationSplitView's column structure is fixed by
         // the initializer overload, so the layout switches by branching on the
@@ -72,7 +72,7 @@ struct ContentView: View {
             // Every selection funnel (list rows, dependency links, back/forward
             // write-backs) lands here; select() no-ops on the current page.
             if let new {
-                // An installed Brew row hands off to the regular inventory view
+                // An installed Chart row hands off to the regular inventory view
                 // (ids match BrewItem.id): same package, same detail page,
                 // three-column layout back. Uninstalled rows stay on the page.
                 if navigation == .topInstalls, app.model.items.contains(where: { $0.id == new }) {
@@ -103,20 +103,21 @@ struct ContentView: View {
         Sidebar(selection: $navigation,
                 counts: sidebarCounts(app.model.items, greedy: app.model.settings.greedyOutdated),
                 model: app.model)
+            .navigationSplitViewColumnWidth(160)
     }
 }
 
 extension BrewSection {
     var title: String {
         switch self {
-        case .all: "All"
+        case .all: "Installed"
         case .formulae: "Formulae"
         case .casks: "Casks"
         case .outdated: "Outdated"
         case .pinned: "Pinned"
         case .deprecated: "Deprecated"
         case .taps: "Taps"
-        case .topInstalls: "Brew"
+        case .topInstalls: "Chart"
         }
     }
 
