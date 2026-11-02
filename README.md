@@ -8,6 +8,16 @@ update notifications — without ever touching Homebrew's internals.
 verified against Homebrew 7.0.11, but it is not polished for general consumption.
 Not affiliated with or endorsed by the Homebrew project.
 
+## Screenshots
+
+| Chart | Installed |
+|:---:|:---:|
+| ![Chart showing popular Homebrew formulae and casks](docs/screenshots/chart.png) | ![Installed packages with package details](docs/screenshots/installed.png) |
+
+| Deprecated | Taps |
+|:---:|:---:|
+| ![Deprecated packages with deprecation details](docs/screenshots/deprecated.png) | ![Homebrew taps with repository details and contents](docs/screenshots/taps.png) |
+
 ## Features
 
 - **Inventory sidebar** — All / Formulae / Casks / Outdated / Pinned / Deprecated /
