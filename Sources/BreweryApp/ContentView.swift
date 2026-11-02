@@ -52,11 +52,13 @@ struct ContentView: View {
                         TapsList(model: app.model, jqAvailable: app.jqAvailable,
                                  selectedTapID: $selectedTapID)
                             .navigationTitle("") // header space blank, like the inventory columns
+                            .navigationSplitViewColumnWidth(230)
                     case .install:
                         InstallList(results: catalogResults, kindFilter: $installKind,
                                     query: $installQuery, selectedID: $selectedInstallID,
                                     model: app.model)
                             .navigationTitle("")
+                            .navigationSplitViewColumnWidth(230)
                     default:
                         // No navigationTitle here: it only repeated the sidebar's
                         // selection. The Installed pane's toolbar carries the kind
@@ -66,6 +68,10 @@ struct ContentView: View {
                                     model: app.model, jqAvailable: app.jqAvailable,
                                     history: $history)
                             .navigationTitle("") // pin it blank; an absent title falls back to the window title
+                            // Middle bar pinned at 230 pt (user choice 2026-11-02):
+                            // fixed row geometry so versions never wrap mid-number
+                            // and names wrap predictably instead of 3+ char fragments.
+                            .navigationSplitViewColumnWidth(230)
                     }
                 } detail: {
                     switch navigation {

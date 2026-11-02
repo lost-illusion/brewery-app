@@ -317,7 +317,10 @@ struct PackageRow: View {
                         .help(DeprecationNotice(item)?.text ?? "deprecated")
                 }
                 Spacer()
-                versionStatus
+                // Version text never wraps mid-number (a narrow column broke
+                // "0.39.1 → 0.40.0" across four lines). The middle bar's own
+                // width is pinned in ContentView (navigationSplitViewColumnWidth).
+                versionStatus.fixedSize()
             }
             if let desc = item.desc {
                 Text(desc).font(.caption).foregroundStyle(.secondary).lineLimit(1)
