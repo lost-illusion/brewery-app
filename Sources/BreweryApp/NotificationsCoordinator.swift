@@ -60,8 +60,8 @@ final class NotificationsCoordinator: NSObject {
         activity = NSBackgroundActivityScheduler(identifier: "com.illusion.brewery.update-digest")
         super.init()
         activity.repeats = true
-        activity.interval = updateDigestInterval
-        activity.tolerance = 3_600
+        activity.interval = updateCheckInterval
+        activity.tolerance = 900
         // The delegate is installed even when disabled: it only routes clicks,
         // and a click that cold-launches the app must reach the routing hook.
         UNUserNotificationCenter.current().delegate = self
@@ -155,7 +155,6 @@ final class NotificationsCoordinator: NSObject {
             </array>
             <key>StartCalendarInterval</key>
             <dict>
-                <key>Hour</key>   <integer>10</integer>
                 <key>Minute</key> <integer>0</integer>
             </dict>
             <key>ProcessType</key> <string>Background</string>
@@ -183,7 +182,7 @@ final class NotificationsCoordinator: NSObject {
         let (status, _) = runLaunchctl(["print", "gui/\(getuid())/\(Self.agentLabel)"])
         backgroundAgentRegistered = status == 0
         backgroundAgentSummary = status == 0
-            ? "background agent: registered — checks daily at 10:00 (or on wake if asleep then), even while brewery is closed"
+            ? "background agent: registered — checks hourly on the hour (or on wake if the Mac was asleep then), even while brewery is closed"
             : "background agent: not registered"
     }
 

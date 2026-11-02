@@ -138,10 +138,14 @@ public final class InventoryModel {
         self.settings = settings
     }
 
-    public func refresh(reason: RefreshReason, forceManifest: Bool = false) async {
+    /// updateTaps: run `brew update` first so tap copies are current — used by
+    /// the scheduled/headless checks (external-tap bumps are otherwise invisible
+    /// under the runner's HOMEBREW_NO_AUTO_UPDATE); GUI-initiated refresh keeps
+    /// it false so ⌘R stays fast.
+    public func refresh(reason: RefreshReason, forceManifest: Bool = false, updateTaps: Bool = false) async {
         if let existing = refreshTask { await existing.value; return } // single flight
         if reason == .focus, focusGateBlocks(now: Date()) { return }
-        let task = Task { await self.performRefresh(forceManifest: forceManifest) }
+        let task = Task { await self.performRefresh(forceManifest: forceManifest, updateTaps: updateTaps) }
         refreshTask = task
         await task.value
         refreshTask = nil
@@ -156,9 +160,17 @@ public final class InventoryModel {
         return false
     }
 
-    private func performRefresh(forceManifest: Bool) async {
+    private func performRefresh(forceManifest: Bool, updateTaps: Bool) async {
         state = .loading
         let now = Date()
+
+        if updateTaps, !brewProbe.isBrewRunningExternally() {
+            // Scheduled/headless checks refresh brew's tap copies: without this,
+            // HOMEBREW_NO_AUTO_UPDATE makes an external tap's version bump
+            // invisible to every check (agterm 0.40.0, 2026-11-02). A failed
+            // update is non-fatal — the check reads the previous tap state.
+            _ = try? await runner.run(["update"])
+        }
 
         let listArgs: [String] = jqAvailable ? ["list", "--json", "--versions"] : ["list", "--versions"]
         do {
@@ -284,7 +296,7 @@ public final class InventoryModel {
             upgrade = .idle
             // Badges must reflect the new reality: re-read inventory and force
             // the manifest past its 24 h cache.
-            await performRefresh(forceManifest: true)
+            await performRefresh(forceManifest: true, updateTaps: false)
         } catch {
             upgrade = .failed(message: "brew command failed: \(error.localizedDescription)")
         }
@@ -507,7 +519,7 @@ public final class InventoryModel {
         }
         tapAction = failure.map { .failed(action: action, message: $0) } ?? .idle
         await performLoadTaps()
-        await performRefresh(forceManifest: true)
+        await performRefresh(forceManifest: true, updateTaps: false)
     }
 
     /// Brew's formula/cask disambiguation flag (trust, pin, unpin all take it).
@@ -578,7 +590,7 @@ public final class InventoryModel {
             // performLoadTaps ends with performLoadTrust, so the store re-reads with the taps.
             await performLoadTaps()
             // Tapping/untapping changes which packages exist and where they came from.
-            if reloadInventory { await performRefresh(forceManifest: true) }
+            if reloadInventory { await performRefresh(forceManifest: true, updateTaps: false) }
         } catch {
             tapAction = .failed(action: action, message: "brew command failed: \(error.localizedDescription)")
         }

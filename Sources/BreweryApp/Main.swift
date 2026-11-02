@@ -69,7 +69,7 @@ final class HeadlessDelegate: NSObject, NSApplicationDelegate {
         // headless lock made every inner acquire fail and the digest check no-op).
 
         let app = AppState(defaults: .standard, headless: true)
-        await app.model.refresh(reason: .manual)
+        await app.model.refresh(reason: .manual, updateTaps: true)
         // evaluate() refuses while the coordinator's async UN-settings callback has
         // not confirmed authorization — in a short-lived process it can lag the
         // refresh (observed 2026-10-31: silent no-op). Wait, then report honestly.

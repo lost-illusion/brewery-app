@@ -74,9 +74,9 @@ private func key(_ kind: BrewItem.Kind, _ name: String, _ version: String) -> Up
     #expect(outcome.newState?.announced == [key(.formula, "ace", "8.2.0")])
 }
 
-@Test func decision_within24hWindowDefersNewPairs() {
+@Test func decision_withinDigestWindowDefersNewPairs() {
     var stored = UpdateNotifyState()
-    stored.lastDigestAt = Date().addingTimeInterval(-3_600)
+    stored.lastDigestAt = Date().addingTimeInterval(-60)
     let outcome = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: stored, now: Date())
     #expect(outcome.action == .deferredNew)
     #expect(outcome.newState?.announced.isEmpty == true) // pending, not consumed
@@ -84,13 +84,13 @@ private func key(_ kind: BrewItem.Kind, _ name: String, _ version: String) -> Up
 }
 
 @Test func decision_pendingPairsRideIntoNextEligibleDigest() {
-    // A pair deferred at T+1h must be named by the digest at T+25h even though
+    // A pair deferred at T+10m must be named by the digest at T+25h even though
     // it was already "known outdated" at the later check.
     let backlogDate = Date(timeIntervalSinceReferenceDate: 0)
     var stored = UpdateNotifyState()
     stored.lastDigestAt = backlogDate
     let deferred = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: stored,
-                                  now: backlogDate.addingTimeInterval(3_600))
+                                  now: backlogDate.addingTimeInterval(600))
     #expect(deferred.action == .deferredNew)
     let later = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: deferred.newState!,
                                now: backlogDate.addingTimeInterval(25 * 3_600))

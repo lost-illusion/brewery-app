@@ -62,7 +62,7 @@ private struct UpdatesSettingsPane: View {
             }
             // Form rows truncate single-line text; fixedSize lets the caption
             // wrap instead of ending mid-word at the window edge.
-            Text("Checks run while brewery is open — on launch, on window focus, and about once a day in the background. The background agent above adds checks while the app is closed (daily 10:00, or on wake if the Mac was asleep then).")
+            Text("Checks run while brewery is open — on launch, on window focus, and about once an hour in the background. The background agent above adds checks while the app is closed (hourly on the hour, or on wake if the Mac was asleep then). Background checks run `brew update` first so new tap versions surface; manual refresh (⌘R) does not.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

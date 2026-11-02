@@ -128,8 +128,8 @@ struct PackageList: View {
             }
             ToolbarItem(placement: .primaryAction) {
                 // Manual refresh: re-runs list+info now; the manifest follows its
-                // 24 h cache (refresh never runs `brew update` — design §Freshness;
-                // only the Outdated section's Update All does).
+                // 24 h cache (GUI refresh never runs `brew update` — design §Freshness;
+                // the hourly background checks and Update All do).
                 // The label lays out in both states (opacity 0, not removed) so the
                 // toolbar slot keeps a fixed size while the spinner replaces it.
                 Button {

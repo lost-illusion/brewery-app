@@ -192,6 +192,23 @@ Consequence: milestone 1 needs **no new signing identity**.
   locally cached definitions — compatibilities §71). Accept tap lag in digests, or design an
   explicitly authorized metadata-update step later.
 
+## Addendum 2026-11-02 — hourly cadence + authorized tap refresh
+
+Triggered by agterm 0.40.0 (external tap umputun/apps): with HOMEBREW_NO_AUTO_UPDATE in the
+runner, every check read the pre-bump tap definition until some outside process ran
+`brew update` — the digest could not see the bump at all (the open question above). Shipped:
+
+- In-app NSBackgroundActivityScheduler tick: 24 h → 1 h (`updateCheckInterval`).
+- LaunchAgent StartCalendarInterval: daily 10:00 → on the hour (Minute-only entry; a run
+  missed during sleep fires on wake).
+- Digest cooldown (`updateDigestInterval`): 24 h → 1 h. A new (package, version) pair
+  announces at the first check past the cooldown — within about an hour of a tap bump;
+  per-pair dedup unchanged, so repeat nagging stays zero.
+- Open question resolved by the authorized metadata-update step: scheduled ticks and the
+  `--check-updates` agent run `brew update` before reading (skipped while an external brew
+  runs; a failed update is non-fatal). GUI-initiated refresh (launch/focus/⌘R) still never
+  runs it.
+
 Docs consulted (via codex advisory): Apple TN3127, TN2206, UserNotifications authorization and
 handling guides, SMAppService migration guide, managing background processes (AppKit),
 launchd Scheduling Timed Jobs + local Darwin 27 manpages, docs.brew.sh Manpage/Querying-Brew.

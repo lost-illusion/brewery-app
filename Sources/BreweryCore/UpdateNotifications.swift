@@ -91,7 +91,7 @@ public struct UpdateNotifyStore: Sendable {
 
 public enum DigestAction: Sendable, Equatable {
     case announce(text: UpdateDigestText, total: Int)
-    /// New pairs exist but the 24 h digest window has not elapsed — they stay
+    /// New pairs exist but the digest cooldown has not elapsed — they stay
     /// unannounced and the next eligible check carries them.
     case deferredNew
     /// No new pairs, but some announced pairs are still outdated — the delivered
@@ -108,7 +108,15 @@ public struct DigestOutcome: Sendable {
     public let newState: UpdateNotifyState?
 }
 
-public let updateDigestInterval: TimeInterval = 86_400
+/// Background check cadence — the in-app NSBackgroundActivityScheduler tick and
+/// the LaunchAgent's hourly StartCalendarInterval. (Addendum 2026-11-02: the
+/// daily cadence lagged external-tap bumps by a day or more.)
+public let updateCheckInterval: TimeInterval = 3_600
+/// Minimum spacing between interrupting digests. A new pair arriving within it
+/// defers to the next check past the cooldown; with the hourly check a bump is
+/// announced within about one check, while the per-pair dedup keeps repeat
+/// nagging at zero.
+public let updateDigestInterval: TimeInterval = 3_600
 
 /// One successful check's decision: what to persist and whether a digest fires now.
 /// Announce marks *all* currently eligible pairs as announced (the digest names the

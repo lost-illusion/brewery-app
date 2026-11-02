@@ -58,7 +58,7 @@ final class AppState {
                                                 headless: headless)
         notifications.onScheduledTick = { [weak self] in
             guard let self else { return }
-            await self.model.refresh(reason: .manual)
+            await self.model.refresh(reason: .manual, updateTaps: true)
             self.notifications.evaluate(items: self.model.items)
         }
         notifications.onReadyToEvaluate = { [weak self] in
