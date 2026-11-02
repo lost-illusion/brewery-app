@@ -51,6 +51,7 @@ public enum TapAction: Equatable {
     case trustingItem(qualified: String), untrustingItem(qualified: String)
     case installing(qualified: String), uninstalling(qualified: String)
     case pinning(qualified: String), unpinning(qualified: String)
+    case switchingToVersion(qualified: String, version: String), relinkingTo(qualified: String, version: String)
 
     public var label: String {
         switch self {
@@ -64,6 +65,8 @@ public enum TapAction: Equatable {
         case .uninstalling(let q): "Uninstalling \(q)…"
         case .pinning(let q): "Pinning \(q)…"
         case .unpinning(let q): "Unpinning \(q)…"
+        case .switchingToVersion(let q, let v): "Switching \(q) to \(v)…"
+        case .relinkingTo(let q, let v): "Relinking \(q) to \(v)…"
         }
     }
 }
@@ -405,6 +408,106 @@ public final class InventoryModel {
     public func unpinItem(qualified: String, kind: BrewItem.Kind) async {
         await runTapAction(.unpinning(qualified: qualified),
                            args: ["unpin", Self.kindFlag(kind), qualified], reloadInventory: true)
+    }
+
+    // MARK: - Version switching (compat §27)
+
+    /// What a "switch to <version>" click would run for this row — drives the
+    /// detail page's row button and the confirm sheet copy.
+    public func versionSwitchPlan(for item: BrewItem, to version: String) -> VersionSwitchPlan {
+        BreweryCore.versionSwitchPlan(for: item, to: version, items: items, taps: taps)
+    }
+
+    /// Switch this family to `version` (formulae only; casks have no versioned
+    /// installs — compat §27). Two brew-faithful routes:
+    /// - Target keg already installed → `brew unlink` the linked family kegs, then
+    ///   `brew link` the target rack (`--force` only for keg-only, the flag brew's
+    ///   own help names for linking them). Nothing re-downloads.
+    /// - Target keg missing → `brew extract --force --version=<v> <name> <tap>`
+    ///   materializes the definition (brew has no `wget@1.21.1` to install until
+    ///   some tap defines it — live-probed 2026-11-02), then unlink the linked
+    ///   family kegs (install's symlinks would collide with them), then
+    ///   `brew install -y <tap>/<name>@<v>`. The old keg stays installed but
+    ///   unlinked, so switching back is the relink route.
+    /// For a core formula on an API-mode machine the clone step `brew tap
+    /// homebrew/core` runs first — extract's `source_tap.installed?` gate refuses
+    /// history queries against the virtual tap (`dev-cmd/extract.rb`, `tap.rb`).
+    /// Mid-sequence failure still reloads taps+inventory: the tap clone and the
+    /// extracted file are already on disk even when a later step failed.
+    public func switchFormulaVersion(item: BrewItem, version: String, destinationTap: String) async {
+        if let existing = tapActionTask { await existing.value; return } // one mutation at a time
+        if let refresh = refreshTask { await refresh.value }
+        if let upgrade = upgradeTask { await upgrade.value }
+        if brewProbe.isBrewRunningExternally() {
+            tapAction = .failed(action: .switchingToVersion(qualified: item.fullName, version: version),
+                                message: "brew is busy (another brew process is running) — wait for it, then retry")
+            return
+        }
+        let plan = versionSwitchPlan(for: item, to: version)
+        let action: TapAction = switch plan {
+        case .relink: .relinkingTo(qualified: item.fullName, version: version)
+        default: .switchingToVersion(qualified: item.fullName, version: version)
+        }
+        let task = Task { await self.performSwitch(action: action, plan: plan,
+                                                   destinationTap: destinationTap, item: item, version: version) }
+        tapActionTask = task
+        await task.value
+        tapActionTask = nil
+    }
+
+    private func performSwitch(action: TapAction, plan: VersionSwitchPlan, destinationTap: String,
+                               item: BrewItem, version: String) async {
+        tapAction = .running(action)
+        var failure: String?
+        do {
+            switch plan {
+            case .blocked(let reason):
+                failure = reason
+            case .relink(let rack, let unlinkRacks, let kegOnly):
+                for rackName in unlinkRacks {
+                    let res = try await runner.run(["unlink", "--formula", rackName])
+                    if res.exitCode != 0 { failure = failureMessage(for: res); break }
+                }
+                if failure == nil {
+                    var args = ["link", "--formula"]
+                    if kegOnly { args.append("--force") }
+                    args.append(rack)
+                    let res = try await runner.run(args)
+                    if res.exitCode != 0 { failure = failureMessage(for: res) }
+                }
+            case .extractInstall(let sourceName, let ver, let sourceTap, _, let needsClone):
+                if needsClone {
+                    let res = try await runner.run(["tap", sourceTap])
+                    if res.exitCode != 0 { failure = failureMessage(for: res) }
+                }
+                if failure == nil {
+                    let res = try await runner.run(["extract", "--force", "--version=\(ver)", sourceName, destinationTap])
+                    if res.exitCode != 0 {
+                        failure = failureMessage(for: res)
+                    } else {
+                        let lastComponent = sourceName.split(separator: "/").last.map(String.init) ?? sourceName
+                        let formulaName = extractedFormulaName(from: res.stdout,
+                                                               fallbackBase: baseFormulaName(lastComponent),
+                                                               fallbackVersion: ver)
+                        // Unlink before installing so the new keg's symlinks don't
+                        // collide with a currently linked keg of the same product.
+                        for keg in versionFamily(of: item, in: items).filter({ $0.linkedVersion != nil }) {
+                            let unlinkRes = try await runner.run(["unlink", "--formula", keg.fullName])
+                            if unlinkRes.exitCode != 0 { failure = failureMessage(for: unlinkRes); break }
+                        }
+                        if failure == nil {
+                            let installRes = try await runner.run(["install", "-y", "\(destinationTap)/\(formulaName)"])
+                            if installRes.exitCode != 0 { failure = failureMessage(for: installRes) }
+                        }
+                    }
+                }
+            }
+        } catch {
+            failure = "brew command failed: \(error.localizedDescription)"
+        }
+        tapAction = failure.map { .failed(action: action, message: $0) } ?? .idle
+        await performLoadTaps()
+        await performRefresh(forceManifest: true)
     }
 
     /// Brew's formula/cask disambiguation flag (trust, pin, unpin all take it).

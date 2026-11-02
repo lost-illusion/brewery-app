@@ -16,6 +16,7 @@ struct PackageDetail: View {
     @State private var changelogRelease: UpstreamRelease?
     @State private var openError: String?
     @State private var confirmUninstall = false
+    @State private var switchRequest: PackageSwitchRequest?
 
     var body: some View {
         if let item {
@@ -109,8 +110,11 @@ struct PackageDetail: View {
                 // flip while the same package stays selected.
                 .task(id: "\(item.id)|\(changelogSource.rawValue)") {
                     guard changelogSource != .off else { return }
-                    // Tap routes need the lazily loaded tap list before routing.
-                    if historyRouteNeedsTaps(for: item), model.tapsState != .ready {
+                    // Tap routes need the lazily loaded tap list before routing, and
+                    // the version-history switch rows plan against it too (extract
+                    // destinations + core-clone status, §27) — so load it whenever
+                    // this section is on. loadTaps is cached; this is not per-row cost.
+                    if model.tapsState != .ready {
                         await model.loadTaps()
                     }
                     await app.versionHistory.load(for: item, taps: model.taps)
@@ -122,9 +126,15 @@ struct PackageDetail: View {
                     changelogRelease = nil
                     openError = nil
                     confirmUninstall = false
+                    switchRequest = nil
                 }
                 .sheet(item: $changelogRelease) { release in
                     ChangelogSheet(release: release)
+                }
+                .sheet(item: $switchRequest) { request in
+                    SwitchVersionSheet(item: item, version: request.version,
+                                       plan: model.versionSwitchPlan(for: item, to: request.version),
+                                       model: model)
                 }
                 .alert("Uninstall \(item.fullName)?", isPresented: $confirmUninstall) {
                     Button("Uninstall", role: .destructive) {
@@ -541,6 +551,13 @@ struct PackageDetail: View {
                        isOn: $showAllCommits)
                     .font(.caption)
             }
+            // Honest gap marker (§27): the switch buttons above exist for
+            // formulae only — brew has no versioned casks to switch to.
+            if item.kind == .cask {
+                Text("Casks stay on their current version — brew has no versioned casks.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             // Relative age, not a clock time: a cached timeline can now be
             // days old (§23) and "fetched 14:32" would read as "today".
             Text("\(origin) · fetched \(fetchedAt.formatted(.relative(presentation: .named)))")
@@ -555,7 +572,11 @@ struct PackageDetail: View {
     /// git origin); the trailing arrow always goes to the commit. A matched
     /// release merges its title and pre-release flag into the row — this is
     /// where the old "Upstream releases" section's data now lives. The row for
-    /// the installed version carries an "installed" chip.
+    /// the linked version carries a "linked" chip, other installed versions an
+    /// "installed" chip. Formula rows brew can switch to get a ⇄ button
+    /// (relink or extract+install — plan + confirmation in SwitchVersionSheet,
+    /// §27); rows already at the linked version, casks, and rows with no
+    /// extract destination stay chip-only.
     private func historyRow(_ item: BrewItem, _ entry: VersionHistoryEntry) -> some View {
         let matched: UpstreamRelease? = {
             guard let bump = entry.versionBump else { return nil }
@@ -564,6 +585,11 @@ struct PackageDetail: View {
         let releaseURL = matched?.webURL
         let linkURL = releaseURL ?? entry.webURL
         let isInstalledRow = entry.versionBump.map { item.installedVersions.contains($0) } ?? false
+        let isLinkedRow = entry.versionBump != nil && entry.versionBump == item.linkedVersion
+        let switchPlan: VersionSwitchPlan? = {
+            guard item.kind == .formula, let version = entry.versionBump else { return nil }
+            return model.versionSwitchPlan(for: item, to: version)
+        }()
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Group {
                 if let date = entry.date {
@@ -590,7 +616,15 @@ struct PackageDetail: View {
                         .foregroundStyle(.tint)
                         .help(entry.subject) // full commit subject on hover
                     }
-                if isInstalledRow {
+                if isLinkedRow {
+                    Text("linked")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.green.opacity(0.15), in: Capsule())
+                        .help("the version brew's symlinks currently point at")
+                } else if isInstalledRow {
                     Text("installed")
                         .font(.caption2)
                         .foregroundStyle(.green)
@@ -613,6 +647,15 @@ struct PackageDetail: View {
             Spacer(minLength: 4)
             if let matched, matched.bodyText != nil {
                 noteButton(matched)
+            }
+            if let version = entry.versionBump, switchPlan?.isActionable == true {
+                Button { switchRequest = PackageSwitchRequest(version: version) } label: {
+                    Image(systemName: "arrow.triangle.swap")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                .disabled(model.state == .loading || model.tapAction != .idle)
+                .help("Switch \(item.fullName) to \(version)")
             }
             if let url = entry.webURL {
                 Button { NSWorkspace.shared.open(url) } label: {
@@ -673,6 +716,12 @@ struct PackageDetail: View {
             }
         }
     }
+}
+
+/// One "switch to this version" row click, presented via `.sheet(item:)`.
+struct PackageSwitchRequest: Identifiable {
+    let version: String
+    var id: String { version }
 }
 
 extension String {
