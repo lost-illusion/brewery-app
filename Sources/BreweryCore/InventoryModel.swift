@@ -49,7 +49,7 @@ public enum TapAction: Equatable {
     case tapping(name: String), untapping(name: String)
     case trusting(name: String), untrusting(name: String)
     case trustingItem(qualified: String), untrustingItem(qualified: String)
-    case installing(qualified: String)
+    case installing(qualified: String), uninstalling(qualified: String)
     case pinning(qualified: String), unpinning(qualified: String)
 
     public var label: String {
@@ -61,6 +61,7 @@ public enum TapAction: Equatable {
         case .trustingItem(let q): "Trusting \(q)…"
         case .untrustingItem(let q): "Untrusting \(q)…"
         case .installing(let q): "Installing \(q)…"
+        case .uninstalling(let q): "Uninstalling \(q)…"
         case .pinning(let q): "Pinning \(q)…"
         case .unpinning(let q): "Unpinning \(q)…"
         }
@@ -366,6 +367,30 @@ public final class InventoryModel {
     /// trust step gates this button.
     public func installItem(_ qualified: String) async {
         await runTapAction(.installing(qualified: qualified), args: ["install", "-y", qualified], reloadInventory: true)
+    }
+
+    /// `brew uninstall --formula|--cask <qualified>` (compat §26). No `-y`: brew 7.0.11's
+    /// uninstall flag set has no -y/--yes and uninstall never shows the ask-mode prompt
+    /// (verified via `brew uninstall --help`), so there is no TTY prompt to hang the GUI
+    /// (contrast install, §77). brew also auto-runs `Cleanup.autoremove` after a successful
+    /// uninstall unless HOMEBREW_NO_AUTOREMOVE is set — orphaned deps can leave with it;
+    /// the GUI warns before confirming and the inventory re-read shows the result.
+    /// - allVersions → `--force`: brew's default scope is the linked keg only
+    ///   (cmd/uninstall.rb `:default_kegs`); --force deletes every installed version.
+    ///   Formula-only in the GUI: for casks --force instead means "uninstall even if not
+    ///   installed / ignore errors", which the GUI should not reach for silently.
+    /// - ignoreDependencies → `--ignore-dependencies`: brew refuses to uninstall a package
+    ///   other installed packages depend on ("Refusing to uninstall … You can override
+    ///   this and force removal with: brew uninstall --ignore-dependencies …",
+    ///   dependents_message.rb); pinned packages brew refuses outright.
+    public func uninstallItem(qualified: String, kind: BrewItem.Kind,
+                              allVersions: Bool = false, ignoreDependencies: Bool = false) async {
+        var args = ["uninstall"]
+        if allVersions { args.append("--force") }
+        if ignoreDependencies { args.append("--ignore-dependencies") }
+        args.append(Self.kindFlag(kind))
+        args.append(qualified)
+        await runTapAction(.uninstalling(qualified: qualified), args: args, reloadInventory: true)
     }
 
     /// `brew pin|unpin --formula|--cask <qualified>` (compat §93). brew accepts only

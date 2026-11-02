@@ -325,6 +325,70 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
     #expect(runner.calls.filter { $0.first == "list" }.isEmpty) // failed mutation: no inventory re-read
 }
 
+// MARK: - Uninstall installed packages (compat §26)
+
+@MainActor
+@Test func itemUninstall_runsBrewUninstallWithKindFlagAndReloadsInventory() async {
+    // No -y: brew 7.0.11's uninstall flag set has no -y/--yes and uninstall never shows
+    // the ask-mode prompt (verified via `brew uninstall --help` 2026-11-02) — nothing can
+    // hang the GUI here (contrast install §77).
+    let (model, runner) = makeHarness(tapResults: ["uninstall --formula wget": ok("Uninstalling wget... (1.21)\n")])
+    await model.uninstallItem(qualified: "wget", kind: .formula)
+    #expect(runner.calls.first == ["uninstall", "--formula", "wget"])
+    #expect(model.tapAction == .idle)
+    // the row must disappear from the list without a manual refresh; the same re-read
+    // also surfaces brew's post-uninstall autoremove (cmd/uninstall.rb runs Cleanup.autoremove)
+    #expect(runner.calls.contains { $0.first == "list" })
+}
+
+@MainActor
+@Test func itemUninstall_usesCaskFlagForCasks() async {
+    let (model, runner) = makeHarness(tapResults: ["uninstall --cask wireshark-app": ok("Uninstalling wireshark-app...\n")])
+    await model.uninstallItem(qualified: "wireshark-app", kind: .cask)
+    #expect(runner.calls.first == ["uninstall", "--cask", "wireshark-app"])
+    #expect(model.tapAction == .idle)
+}
+
+@MainActor
+@Test func itemUninstall_allVersionsVariantPassesForce() async {
+    // brew's default keg scope is the linked version only (--force = all installed versions)
+    let (model, runner) = makeHarness(tapResults: ["uninstall --force --formula wget": ok("Uninstalling wget... (1.21)\n")])
+    await model.uninstallItem(qualified: "wget", kind: .formula, allVersions: true)
+    #expect(runner.calls.first == ["uninstall", "--force", "--formula", "wget"])
+}
+
+@MainActor
+@Test func itemUninstall_surfacesBrewsDependentsRefusalVerbatim() async {
+    // brew's exact wording, read from this machine's dependents_message.rb:26-38 (2026-11-02);
+    // a live refusal was not produced (AGENTS.md: no uninstall without approval)
+    let refusal = fail("""
+    Error: Refusing to uninstall openssl
+    because it is required by postgresql@17, which is currently installed.
+    You can override this and force removal with:
+      brew uninstall --ignore-dependencies openssl
+    """)
+    let (model, runner) = makeHarness(tapResults: ["uninstall --formula openssl": refusal])
+    await model.loadTaps()
+    await model.uninstallItem(qualified: "openssl", kind: .formula)
+    if case .failed(let action, let message) = model.tapAction {
+        #expect(action == .uninstalling(qualified: "openssl"))
+        #expect(message.contains("Refusing to uninstall")) // brew's own wording, names the override
+        #expect(message.contains("--ignore-dependencies"))
+    } else {
+        Issue.record("expected .failed, got \(model.tapAction)")
+    }
+    #expect(runner.calls.filter { $0.first == "list" }.isEmpty) // nothing removed: no inventory re-read
+}
+
+@MainActor
+@Test func itemUninstall_ignoreDependenciesIsTheOverrideBrewItselfSuggests() async {
+    let (model, runner) = makeHarness(tapResults: ["uninstall --ignore-dependencies --formula openssl": ok("Uninstalling openssl...\n")])
+    await model.uninstallItem(qualified: "openssl", kind: .formula, ignoreDependencies: true)
+    #expect(runner.calls.first == ["uninstall", "--ignore-dependencies", "--formula", "openssl"])
+    #expect(model.tapAction == .idle)
+    #expect(runner.calls.contains { $0.first == "list" })
+}
+
 // MARK: - Preview of not-installed packages (compat §22)
 
 @MainActor

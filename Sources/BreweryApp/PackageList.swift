@@ -10,6 +10,7 @@ struct PackageList: View {
     let jqAvailable: Bool
     @Binding var history: NavigationHistory
     @State private var confirmUpdateAll = false
+    @State private var uninstallTarget: BrewItem?
 
     private var filtered: [BrewItem] {
         let rows = items(model.items, in: section, query: query.isEmpty ? nil : query,
@@ -35,6 +36,22 @@ struct PackageList: View {
         items(model.items, in: .outdated, query: nil, greedy: model.settings.greedyOutdated).count
     }
 
+    /// Row-menu confirmation copy: the row shortcut's compact form of the detail
+    /// page's uninstallWarning (§26). Dependents cannot be looked up cheaply for
+    /// every row's alert copy, so the message points at brew's refusal instead:
+    /// a refusal lands in the banner verbatim, and the detail page carries the
+    /// full dependents list plus the "Ignore dependents" override.
+    private func rowUninstallMessage(_ item: BrewItem) -> String {
+        var text = item.kind == .cask
+            ? "brew uninstall --cask quits the running app, then removes \(item.name)."
+            : "brew uninstall removes the linked version of \(item.name)."
+        if item.kind == .formula, item.installedVersions.count > 1 {
+            text += " \(item.installedVersions.count) versions are installed — the others stay unless you pick “Remove all”."
+        }
+        text += " Homebrew then auto-removes formulae that were only installed as dependencies of this one; if other installed packages depend on this one, brew refuses (its message names them — the detail page offers the override)."
+        return text
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             banners
@@ -50,6 +67,26 @@ struct PackageList: View {
             Text("""
                 Runs brew update, then brew upgrade. Upgrades everything brew considers outdated (\(count) shown here; tap packages are included even when their version shows as “—”). Pinned packages are skipped; running cask apps may be quit.
                 """)
+        }
+        // Row-menu uninstall confirmation. Fixed title: the presenting item is
+        // nil'd on dismiss and an interpolated title would blank mid-animation.
+        // The detail page's richer confirmation (dependents lookup, version
+        // scope) is a deliberate step up from the row shortcut's one-liner.
+        .alert("Uninstall package?", isPresented: Binding(
+            get: { uninstallTarget != nil },
+            set: { if !$0 { uninstallTarget = nil } }
+        ), presenting: uninstallTarget) { item in
+            Button("Uninstall", role: .destructive) {
+                Task { await model.uninstallItem(qualified: item.fullName, kind: item.kind) }
+            }
+            if item.kind == .formula, item.installedVersions.count > 1 {
+                Button("Remove all \(item.installedVersions.count) versions", role: .destructive) {
+                    Task { await model.uninstallItem(qualified: item.fullName, kind: item.kind, allVersions: true) }
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { item in
+            Text(rowUninstallMessage(item))
         }
         .toolbar {
             if section == .all {
@@ -144,6 +181,26 @@ struct PackageList: View {
         case .idle:
             EmptyView()
         }
+        // Row actions (uninstall, pin) run through model.tapAction; without this
+        // banner a row-initiated mutation has no progress and a brew refusal
+        // (dependents, pinned) is visible only when that package's detail page is open.
+        switch model.tapAction {
+        case .running(let action):
+            Label(action.label, systemImage: "gear")
+                .foregroundStyle(.tint)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.accentColor.opacity(0.12))
+        case .failed(_, let message):
+            Label(message, systemImage: "exclamationmark.octagon.fill")
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(.red.opacity(0.12))
+                .textSelection(.enabled)
+        case .idle:
+            EmptyView()
+        }
         if case .failed(let message) = model.state {
             Label(message, systemImage: "exclamationmark.octagon.fill")
                 .foregroundStyle(.red)
@@ -187,7 +244,8 @@ struct PackageList: View {
                                 }
                             }
                             // brew pin accepts installed names only (compat §93);
-                            // preview rows have nothing to pin.
+                            // preview rows have nothing to pin. Uninstall goes last:
+                            // destructive actions sit at the menu's bottom edge.
                             if !item.installedVersions.isEmpty {
                                 Button {
                                     Task {
@@ -201,6 +259,15 @@ struct PackageList: View {
                                     Label(item.isPinned ? "Unpin" : "Pin",
                                           systemImage: item.isPinned ? "pin.slash" : "pin")
                                 }
+                                Button(role: .destructive) {
+                                    uninstallTarget = item
+                                } label: {
+                                    Label("Uninstall", systemImage: "trash")
+                                }
+                                .disabled(item.isPinned)
+                                .help(item.isPinned
+                                      ? "pinned — brew refuses to uninstall pinned packages; Unpin first"
+                                      : "brew uninstall \(item.fullName)")
                             }
                         }
                 }

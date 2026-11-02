@@ -15,6 +15,7 @@ struct PackageDetail: View {
     @State private var visibleCommits = 10
     @State private var changelogRelease: UpstreamRelease?
     @State private var openError: String?
+    @State private var confirmUninstall = false
 
     var body: some View {
         if let item {
@@ -72,7 +73,7 @@ struct PackageDetail: View {
                             }
                         }
                     }
-                    let usedBy = ReverseDependencies(items: allItems).dependents(of: item)
+                    let usedBy = dependents(of: item)
                     if !usedBy.isEmpty {
                         GroupBox("Used by (\(usedBy.count))") {
                             FlowLayout(spacing: 6) {
@@ -120,9 +121,33 @@ struct PackageDetail: View {
                     visibleCommits = 10
                     changelogRelease = nil
                     openError = nil
+                    confirmUninstall = false
                 }
                 .sheet(item: $changelogRelease) { release in
                     ChangelogSheet(release: release)
+                }
+                .alert("Uninstall \(item.fullName)?", isPresented: $confirmUninstall) {
+                    Button("Uninstall", role: .destructive) {
+                        Task { await model.uninstallItem(qualified: item.fullName, kind: item.kind) }
+                    }
+                    // brew's default keg scope is the linked version only; --force is the
+                    // only way the other installed kegs go (compat §26).
+                    if item.kind == .formula, item.installedVersions.count > 1 {
+                        Button("Remove all \(item.installedVersions.count) versions", role: .destructive) {
+                            Task { await model.uninstallItem(qualified: item.fullName, kind: item.kind,
+                                                             allVersions: true) }
+                        }
+                    }
+                    // Offer exactly the override brew's refusal prints (dependents_message.rb).
+                    if !dependents(of: item).isEmpty {
+                        Button("Ignore dependents", role: .destructive) {
+                            Task { await model.uninstallItem(qualified: item.fullName, kind: item.kind,
+                                                             ignoreDependencies: true) }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) { }
+                } message: {
+                    Text(uninstallWarning(item))
                 }
             }
         } else {
@@ -201,8 +226,63 @@ struct PackageDetail: View {
                 openButton(item)
                 pinButton(item)
                 updateButton(item)
+                uninstallButton(item)
             }
         }
+    }
+
+    private func dependents(of item: BrewItem) -> [BrewItem] {
+        ReverseDependencies(items: allItems).dependents(of: item)
+    }
+
+    /// Uninstall for installed packages only (brew's named_args are
+    /// :installed_formula/:installed_cask — preview rows have nothing to remove).
+    /// Disabled while pinned because brew refuses outright:
+    /// "<name> is pinned. You must unpin it to uninstall." (uninstall.rb /
+    /// cask/uninstall.rb) — the adjacent Unpin button is the fix, one click away.
+    @ViewBuilder private func uninstallButton(_ item: BrewItem) -> some View {
+        if !item.installedVersions.isEmpty {
+            Button { confirmUninstall = true } label: {
+                Label("Uninstall", systemImage: "trash")
+                    .opacity(model.tapAction == .idle ? 1 : 0)
+                    .overlay {
+                        if model.tapAction != .idle {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .disabled(item.isPinned || model.state == .loading
+                      || model.upgrade != .idle || model.tapAction != .idle)
+            .help(item.isPinned
+                  ? "pinned — brew refuses to uninstall pinned packages; Unpin first"
+                  : "brew uninstall \(item.kind == .formula ? "--formula" : "--cask") \(item.fullName)")
+        }
+    }
+
+    /// Confirmation copy states exactly what brew will do (compat §26): the
+    /// default keg scope, the multi-version gap, the dependents refusal, and
+    /// the autoremove side effect brew runs after every successful uninstall.
+    private func uninstallWarning(_ item: BrewItem) -> String {
+        var lines: [String] = []
+        if item.kind == .cask {
+            lines.append("brew uninstall --cask quits the running app, then removes \(item.name).")
+        } else {
+            lines.append("brew uninstall removes the linked version of \(item.name).")
+        }
+        if item.kind == .formula, item.installedVersions.count > 1 {
+            let others = item.installedVersions.filter { $0 != item.linkedVersion }
+                .joined(separator: ", ")
+            lines.append("\(item.installedVersions.count) versions are installed — the others (\(others)) stay unless you pick “Remove all”.")
+        }
+        let deps = dependents(of: item)
+        if !deps.isEmpty {
+            let names = deps.prefix(4).map(chipLabel).joined(separator: ", ")
+            lines.append("Installed packages depend on this: \(names)\(deps.count > 4 ? ", …" : ""). brew refuses unless they go first; “Ignore dependents” overrides and leaves them broken.")
+        }
+        lines.append("Homebrew then auto-removes formulae that were only installed as dependencies of this one.")
+        return lines.joined(separator: " ")
     }
 
     /// Which release the header's changelog button documents: the update
