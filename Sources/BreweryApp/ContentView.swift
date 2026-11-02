@@ -14,6 +14,11 @@ struct ContentView: View {
     @State private var query = ""
     @State private var selectedID: String?
     @State private var selectedTapID: String?
+    // Install-pane state lives here (not in InstallList) so a sidebar switch
+    // doesn't wipe the user's query, kind segment, or selection.
+    @State private var installQuery = ""
+    @State private var installKind: KindFilter = .all
+    @State private var selectedInstallID: String?
     @State private var history = NavigationHistory()
     @State private var showBrewSetup = false
 
@@ -47,6 +52,11 @@ struct ContentView: View {
                         TapsList(model: app.model, jqAvailable: app.jqAvailable,
                                  selectedTapID: $selectedTapID)
                             .navigationTitle("") // header space blank, like the inventory columns
+                    case .install:
+                        InstallList(results: catalogResults, kindFilter: $installKind,
+                                    query: $installQuery, selectedID: $selectedInstallID,
+                                    model: app.model)
+                            .navigationTitle("")
                     default:
                         // No navigationTitle here: it only repeated the sidebar's
                         // selection. The Installed pane's toolbar carries the kind
@@ -65,6 +75,13 @@ struct ContentView: View {
                         // not-installed rows identically (same click, same page).
                         TapDetail(tap: selectedTapID.flatMap { id in app.model.taps.first { $0.id == id } },
                                   model: app.model)
+                    case .install:
+                        // Only not-installed results land here — installed selections
+                        // hand off to the Installed pane's detail (onChange below),
+                        // same precedent as installed Chart rows.
+                        InstallPreview(result: catalogResults.first { $0.id == selectedInstallID },
+                                       model: app.model,
+                                       clearSelection: { selectedInstallID = nil })
                     default:
                         PackageDetail(item: selectedID.flatMap { id in app.model.items.first { $0.id == id } },
                                       allItems: app.model.items,
@@ -88,6 +105,23 @@ struct ContentView: View {
                 history.select(new)
             }
         }
+        .onChange(of: navigation) { _, section in
+            // The Install pane's tap half needs tap-info's contents lists; load
+            // them lazily on entry (single flight, cached — design 2026-11-02).
+            if section == .install { Task { await app.model.loadTaps() } }
+        }
+        .onChange(of: selectedInstallID) { _, new in
+            // An installed search result hands off to the regular inventory view:
+            // same package, same detail page, Installed pane selected. The search
+            // state (query/kind) survives the switch — only the selection moves.
+            guard navigation == .install, let new else { return }
+            if let result = catalogResults.first(where: { $0.id == new }),
+               let installedID = result.installedItemID {
+                selectedInstallID = nil
+                navigation = .all
+                selectedID = installedID
+            }
+        }
         .onChange(of: app.model.inventoryUpdated) { _, updated in
             // Every completed inventory refresh — including tap-action and upgrade
             // re-reads inside the model — flows into the digest check.
@@ -106,6 +140,13 @@ struct ContentView: View {
         .onAppear { if !app.brewFound { showBrewSetup = true } }
     }
 
+    /// Local-only catalog search over the manifest + installed taps' contents —
+    /// recomputed per render (a few ms over ~14k slim entries).
+    private var catalogResults: [CatalogSearchResult] {
+        searchCatalog(manifest: app.model.manifest, installed: app.model.items,
+                      taps: app.model.taps, query: installQuery, kind: installKind)
+    }
+
     private var sidebar: some View {
         Sidebar(selection: $navigation,
                 counts: sidebarCounts(app.model.items, greedy: app.model.settings.greedyOutdated),
@@ -118,6 +159,7 @@ extension BrewSection {
     var title: String {
         switch self {
         case .all: "Installed"
+        case .install: "Install"
         case .outdated: "Outdated"
         case .pinned: "Pinned"
         case .deprecated: "Deprecated"
@@ -129,6 +171,7 @@ extension BrewSection {
     var icon: String {
         switch self {
         case .all: "list.bullet"
+        case .install: "plus.magnifyingglass"
         case .outdated: "arrow.up.circle"
         case .pinned: "pin"
         case .deprecated: "exclamationmark.triangle"

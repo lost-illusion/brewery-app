@@ -1,0 +1,14 @@
+{
+  "metadata": { "bottle_tag": "arm64_golden_gate", "generated_at": "2026-11-02T00:00:00Z" },
+  "formulae": {
+    "git": { "stable_version": "2.47.0", "desc": "Fast, scalable distributed revision control system" },
+    "gitk": { "stable_version": "1.0", "desc": "Git repository frontend" },
+    "ripgrep": { "stable_version": "14.1.1", "desc": "Search tool like grep and The Silver Searcher" },
+    "ace": { "stable_version": "8.0.8", "desc": "ACE text adventure engine port" }
+  },
+  "casks": {
+    "iterm2": { "version": "3.5.11", "tap_string": "homebrew/cask", "name": "iTerm" },
+    "google-chrome": { "version": "130.0", "tap_string": "homebrew/cask", "name": "Google Chrome" },
+    "wireshark-app": { "version": "4.6.9", "tap_string": "homebrew/cask", "name": "Wireshark" }
+  }
+}

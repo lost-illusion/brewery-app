@@ -20,7 +20,9 @@ private func fixtureItems() throws -> [BrewItem] {
     let counts = sidebarCounts(rows, greedy: false)
     // .formulae/.casks are no longer Section cases (kind moved to KindFilter);
     // allCases is the sidebar's row list, so it must not carry them.
-    #expect(Section.allCases.count == 6)
+    // .install joined the sidebar 2026-11-02 (catalog pane).
+    #expect(Section.allCases.count == 7)
+    #expect(counts[.install] == 0) // its own list; inventory rows never count into it
     #expect(counts[.all] == 5)
     #expect(counts[.outdated] == 0) // everything upToDate or unknown, nothing counted
     #expect(counts[.pinned] == 0)
@@ -35,6 +37,8 @@ private func fixtureItems() throws -> [BrewItem] {
     let rows = try fixtureItems()
     #expect(items(rows, in: .taps, query: nil, greedy: false).isEmpty)
     #expect(sidebarCounts(rows, greedy: false)[.taps] == 0)
+    // Same posture for .install (design 2026-11-02): a catalog pane, not an inventory filter.
+    #expect(items(rows, in: .install, query: nil, greedy: false).isEmpty)
 }
 
 @Test func sections_outdatedSectionExcludesUnknown() throws {

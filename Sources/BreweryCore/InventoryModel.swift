@@ -102,6 +102,9 @@ public final class InventoryModel {
     public private(set) var tapsNamesOnly = false
     /// Item-level trust grants (`brew trust --json=v1`); nil = unknown (read failed).
     public private(set) var trustStore: TrustStore?
+    /// The core catalog manifest from the last refresh (drives the Install pane's
+    /// search, design 2026-11-02); nil until a refresh has fetched it.
+    public private(set) var manifest: PackageManifest?
     public var settings: InventorySettings
 
     private let runner: CommandRunning
@@ -117,7 +120,6 @@ public final class InventoryModel {
     private var topInstallsTask: Task<Void, Never>?
     private var tapActionTask: Task<Void, Never>?
     private var lastFailure: Date?
-    private var lastManifest: PackageManifest?
     private static let failureBackoff: TimeInterval = 60
 
     public init(runner: CommandRunning, manifestFetcher: ManifestFetching, store: SnapshotStore,
@@ -207,7 +209,7 @@ public final class InventoryModel {
             } else {
                 versionDataAsOf = nil // no info → no bottleTag → manifest step skipped
             }
-            lastManifest = manifest
+            self.manifest = manifest
             manifestBottleTag = manifest != nil ? bottleTag : nil
             applyPolicy(to: &merged, manifest: manifest)
 
@@ -526,7 +528,7 @@ public final class InventoryModel {
     public func settingsChanged() {
         guard !items.isEmpty else { return }
         var current = items
-        applyPolicy(to: &current, manifest: lastManifest)
+        applyPolicy(to: &current, manifest: manifest)
         items = current
     }
 

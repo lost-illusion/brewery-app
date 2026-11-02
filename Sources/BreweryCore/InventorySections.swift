@@ -4,8 +4,9 @@ public enum Section: String, CaseIterable {
     // Declaration order is the sidebar row order (Sidebar iterates allCases).
     // topInstalls leads; raw values stay stable if the order changes again.
     // .formulae/.casks sidebar rows are retired — kind is an Installed-pane
-    // filter (KindFilter), not a sidebar section.
-    case topInstalls, all, outdated, pinned, deprecated, taps
+    // filter (KindFilter), not a sidebar section. install is the search-and-
+    // install catalog pane (design 2026-11-02), slotted after Installed.
+    case topInstalls, all, install, outdated, pinned, deprecated, taps
 }
 
 /// The Installed pane's kind segment (All | Formulae | Casks). Separate from
@@ -53,7 +54,7 @@ private func matchesSection(_ item: BrewItem, _ section: Section, greedy: Bool) 
         }
     case .pinned: item.isPinned
     case .deprecated: item.isDeprecated
-    case .taps, .topInstalls: false // sidebar panes with their own lists; no inventory row belongs to them
+    case .taps, .topInstalls, .install: false // sidebar panes with their own lists; no inventory row belongs to them
     }
 }
 

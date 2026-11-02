@@ -1,0 +1,23 @@
+{
+  "formulae": [
+    {
+      "name": "ripgrep",
+      "versions": ["14.1.1"],
+      "linked_version": "14.1.1",
+      "optlinked_version": "14.1.1",
+      "pinned_version": null
+    }
+  ],
+  "casks": [
+    {
+      "token": "iterm2",
+      "versions": ["3.5.11"],
+      "pinned_version": null
+    },
+    {
+      "token": "revmux",
+      "versions": ["0.2.7"],
+      "pinned_version": null
+    }
+  ]
+}

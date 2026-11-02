@@ -33,7 +33,9 @@ struct Sidebar: View {
         let label = Label(section.title, systemImage: section.icon).tag(section)
         switch section {
         case .taps: label.badge(model.taps.filter(\.isExternal).count)
-        case .topInstalls: label
+        // install has no badge: catalog size isn't a count of anything the user
+        // would act on (and it would just mirror the manifest every refresh).
+        case .topInstalls, .install: label
         default: label.badge(counts[section] ?? 0)
         }
     }
