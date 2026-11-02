@@ -109,7 +109,10 @@ struct ContentView: View {
             // The Install pane's tap half needs tap-info's contents lists; load
             // them lazily on entry (single flight, cached — design 2026-11-02).
             if section == .install { Task { await app.model.loadTaps() } }
+            dropStaleSelection()
         }
+        .onChange(of: kindFilter) { _, _ in dropStaleSelection() }
+        .onChange(of: query) { _, _ in dropStaleSelection() }
         .onChange(of: selectedInstallID) { _, new in
             // An installed search result hands off to the regular inventory view:
             // same package, same detail page, Installed pane selected. The search
@@ -124,8 +127,11 @@ struct ContentView: View {
         }
         .onChange(of: app.model.inventoryUpdated) { _, updated in
             // Every completed inventory refresh — including tap-action and upgrade
-            // re-reads inside the model — flows into the digest check.
+            // re-reads inside the model — flows into the digest check. An upgrade
+            // can move the selected row out of the pane it was selected in, so
+            // the same staleness drop runs here.
             if updated != nil { app.notifications.evaluate(items: app.model.items) }
+            dropStaleSelection()
         }
         .onChange(of: app.openOutdatedRequested) { _, requested in
             if requested != nil { navigation = .outdated }
@@ -145,6 +151,27 @@ struct ContentView: View {
     private var catalogResults: [CatalogSearchResult] {
         searchCatalog(manifest: app.model.manifest, installed: app.model.items,
                       taps: app.model.taps, query: installQuery, kind: installKind)
+    }
+
+    /// Clears a selection the current pane no longer lists. The detail column
+    /// resolves selectedID against the whole inventory, so a selection made
+    /// under a previous filter/pane kept its page open after the filter moved
+    /// on (2026-11-02: sidebar on the empty Outdated pane, right pane still on
+    /// the cask selected in Installed). Fresh selections — rows, dependency
+    /// links, history write-backs — are untouched here; only filter moves.
+    private func dropStaleSelection() {
+        // Chart keeps its own grid selection in the same id space; the Install
+        // and Taps panes have their own selections. This drop is for the four
+        // panes whose list is the filtered inventory.
+        switch navigation {
+        case .all, .outdated, .pinned, .deprecated: break
+        default: return
+        }
+        if !isVisible(app.model.items, selectedID: selectedID, in: navigation,
+                      query: query.isEmpty ? nil : query, kind: kindFilter,
+                      greedy: app.model.settings.greedyOutdated) {
+            selectedID = nil
+        }
     }
 
     private var sidebar: some View {

@@ -37,6 +37,21 @@ public func items(_ items: [BrewItem], in section: Section, query: String?, gree
     items.filter { matchesSection($0, section, greedy: greedy) && matchesQuery($0, query) }
 }
 
+/// Whether the row the given id selects is visible in the given pane's list —
+/// same filters the content column applies (section rule, query, and the
+/// Installed-pane kind segment). The detail column may only show a visible row:
+/// a selection made under a previous filter/pane is stale once the filter moves
+/// (2026-11-02: sidebar on an empty Outdated pane, right pane still showing the
+/// cask selected in Installed moments earlier).
+public func isVisible(_ inventory: [BrewItem], selectedID: String?, in section: Section,
+                      query: String?, kind: KindFilter, greedy: Bool) -> Bool {
+    guard let selectedID else { return true } // nothing selected — nothing stale
+    // Kind is the Installed pane's segment only (PackageList applies it there);
+    // the other panes' section rule already decides membership.
+    let rows = items(inventory, in: section, query: query, greedy: greedy)
+    return items(rows, kind: section == .all ? kind : .all).contains { $0.id == selectedID }
+}
+
 public func sidebarCounts(_ items: [BrewItem], greedy: Bool) -> [Section: Int] {
     Section.allCases.reduce(into: [Section: Int]()) { counts, section in
         counts[section] = items.filter { matchesSection($0, section, greedy: greedy) }.count

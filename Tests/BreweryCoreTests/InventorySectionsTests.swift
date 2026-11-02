@@ -56,6 +56,29 @@ private func fixtureItems() throws -> [BrewItem] {
     #expect(items(rows, in: .all, query: nil, greedy: false).count == 5)
 }
 
+@Test func sections_isVisibleDropsSelectionsOutsideThePane() throws {
+    let rows = try fixtureItems()
+    let revmux = try #require(rows.first { $0.name == "revmux" })
+    let ace = try #require(rows.first { $0.name == "ace" })
+    let ralphex = try #require(rows.first { $0.name == "ralphex" })
+    let wireshark = try #require(rows.first { $0.name == "wireshark-app" })
+    // The 2026-11-02 bug: an up-to-date cask selected in Installed, then the
+    // sidebar moves to the empty Outdated pane — the pane's list no longer
+    // contains it, so the detail column must drop the stale selection.
+    #expect(isVisible(rows, selectedID: revmux.id, in: .all, query: nil, kind: .all, greedy: false))
+    #expect(!isVisible(rows, selectedID: revmux.id, in: .outdated, query: nil, kind: .all, greedy: false))
+    #expect(isVisible(rows, selectedID: nil, in: .outdated, query: nil, kind: .all, greedy: false)) // nothing selected, nothing stale
+    // Unknown-outdated rows are in no Outdated list either (any greedy).
+    #expect(!isVisible(rows, selectedID: ralphex.id, in: .outdated, query: nil, kind: .all, greedy: true))
+    // Kind is the Installed pane's segment: it hides a formula row there, and
+    // is ignored in the other panes (PackageList applies kind only to .all).
+    #expect(!isVisible(rows, selectedID: ace.id, in: .all, query: nil, kind: .casks, greedy: false))
+    #expect(isVisible(rows, selectedID: wireshark.id, in: .outdated, query: nil, kind: .formulae, greedy: true))
+    // The searchable text filters the list too.
+    #expect(isVisible(rows, selectedID: wireshark.id, in: .all, query: "WIRE", kind: .all, greedy: false))
+    #expect(!isVisible(rows, selectedID: revmux.id, in: .all, query: "WIRE", kind: .all, greedy: false))
+}
+
 @Test func sections_kindFilterReplacesPerKindSections() throws {
     let rows = try fixtureItems()
     #expect(items(rows, kind: .all).count == 5)
