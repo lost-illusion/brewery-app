@@ -61,6 +61,8 @@ jobs:
           files: build/brewery-${{ github.ref_name }}-macos-arm64.zip
           fail_on_unmatched_files: true
           body_path: .github/release-notes.md
-          # Generated notes are appended after the static install guidance.
+          # Generated notes are appended after the static install guidance
+          # (this action build does not honor a `prerelease` input — releases
+          # are published as regular releases, early-project status stated in
+          # the body; set --prerelease on gh release edit for test builds).
           generate_release_notes: true
-          prerelease: ${{ startsWith(github.ref_name, 'v0.') }}
