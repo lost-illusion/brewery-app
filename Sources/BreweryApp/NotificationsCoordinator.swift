@@ -142,29 +142,21 @@ final class NotificationsCoordinator: NSObject {
             refreshBackgroundAgentStatus()
             return
         }
-        let plist = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0">
-        <dict>
-            <key>Label</key> <string>\(Self.agentLabel)</string>
-            <key>ProgramArguments</key>
-            <array>
-                <string>\(exe)</string>
-                <string>--check-updates</string>
-            </array>
-            <key>StartCalendarInterval</key>
-            <dict>
-                <key>Minute</key> <integer>0</integer>
-            </dict>
-            <key>ProcessType</key> <string>Background</string>
-        </dict>
-        </plist>
-        """
+        let agent: [String: Any] = [
+            "Label": Self.agentLabel,
+            "ProgramArguments": [exe, "--check-updates"],
+            "StartCalendarInterval": ["Minute": 0],
+            "ProcessType": "Background",
+        ]
         do {
             try FileManager.default.createDirectory(at: agentPlistURL.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
-            try plist.write(to: agentPlistURL, atomically: true, encoding: .utf8)
+            // Serialize instead of interpolating: an executable path containing
+            // `&` (e.g. "~/Apps/foo & bar/Brewery.app") would otherwise land raw
+            // in the XML, make the plist unparseable, and fail launchctl bootstrap.
+            let data = try PropertyListSerialization.data(fromPropertyList: agent,
+                                                          format: .xml, options: 0)
+            try data.write(to: agentPlistURL, options: .atomic)
         } catch {
             statusMessage = "background agent: could not write the LaunchAgent plist — \(error.localizedDescription)"
             refreshBackgroundAgentStatus()
