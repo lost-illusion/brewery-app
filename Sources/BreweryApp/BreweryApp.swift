@@ -92,6 +92,7 @@ struct BreweryApp: App {
                     // SwiftPM executables can start without frontmost focus.
                     if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
                 }
+                .task { await AppShot.runIfRequested(app: app) }
         }
         .commands {
             CommandGroup(after: .newItem) {

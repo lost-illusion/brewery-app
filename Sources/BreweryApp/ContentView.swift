@@ -7,7 +7,8 @@ typealias BrewSection = BreweryCore.Section
 struct ContentView: View {
     @Environment(AppState.self) private var app
     @Environment(\.scenePhase) private var scenePhase
-    @State private var navigation: BrewSection = .all
+    // .all unless BREWERY_APP_SHOT_SECTION asks for another pane (AppShot).
+    @State private var navigation: BrewSection = AppShot.initialSection
     // Kind segment state lives here (not in PackageList) so it survives sidebar
     // switches; only the Installed pane reads it.
     @State private var kindFilter: KindFilter = .all
@@ -144,6 +145,16 @@ struct ContentView: View {
         }
         .task {
             if app.model.state == .idle { await app.model.refresh(reason: .manual) }
+            if AppShot.isRequested {
+                if navigation == .taps {
+                    await app.model.loadTaps()
+                    selectedTapID = app.model.taps.first(where: { $0.isExternal })?.id ?? app.model.taps.first?.id
+                } else {
+                    let rows = items(app.model.items, in: navigation, query: nil,
+                                     greedy: app.model.settings.greedyOutdated)
+                    selectedID = rows.first(where: { $0.name == "git" })?.id ?? rows.first?.id
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await app.model.refresh(reason: .focus) } }
