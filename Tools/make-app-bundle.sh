@@ -5,7 +5,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-VERSION="${BREWERY_VERSION:-0.2.0}"
+VERSION="${BREWERY_VERSION:-0.2.1}"
 if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     echo "invalid BREWERY_VERSION '$VERSION' — expect MAJOR.MINOR.PATCH" >&2
     exit 1

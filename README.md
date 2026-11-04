@@ -4,7 +4,7 @@ A macOS SwiftUI app to inspect and drive an installed [Homebrew](https://brew.sh
 formulae, casks, taps, outdated and pinned packages, version histories, and daily
 update notifications — without ever touching Homebrew's internals.
 
-**Status:** early personal project (v0.2.0). It works on the author's machine and is
+**Status:** early personal project (v0.2.1). It works on the author's machine and is
 verified against Homebrew 7.0.11, but it is not polished for general consumption.
 Not affiliated with or endorsed by the Homebrew project.
 
