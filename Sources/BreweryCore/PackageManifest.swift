@@ -69,6 +69,9 @@ public struct PackageManifest: Decodable, Sendable {
         public let version: String?
         public let tapString: String?
         public let name: String?
+        /// Present for 5188/7823 casks in the live payload (2026-11-10) —
+        /// casks without one surface with desc nil, same as tap entries.
+        public let desc: String?
         /// All product names the cask answers to, including localized ones
         /// ("115浏览器"). The per-entry `renames` key is deliberately NOT decoded:
         /// it renames bundled artifact filenames (App.app/pkg names), not the
@@ -76,7 +79,7 @@ public struct PackageManifest: Decodable, Sendable {
         public let names: [String]?
 
         enum CodingKeys: String, CodingKey {
-            case version, name, names
+            case version, name, names, desc
             case tapString = "tap_string"
         }
     }

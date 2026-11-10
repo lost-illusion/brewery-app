@@ -152,6 +152,16 @@ private func searchTaps() throws -> [TapInfo] {
     #expect(r.map(\.id) == ["umputun/apps/ralphex"])
 }
 
+@Test func search_caskDescMatch() throws {
+    // The manifest carries desc for most casks (5188/7823 live 2026-11-10) —
+    // the desc-contains tier reaches casks too.
+    let manifest = try searchManifest()
+    #expect(names(searchCatalog(manifest: manifest, installed: [], taps: [], query: "emulator", kind: .all)) == ["iterm2"])
+    let analyzer = searchCatalog(manifest: manifest, installed: [], taps: [], query: "analyzer", kind: .all)
+    #expect(analyzer.map(\.id) == ["homebrew/cask/wireshark-app"])
+    #expect(analyzer.first?.desc == "Network protocol analyzer")
+}
+
 // MARK: - Alias / rename / tap-migration recall (compat §29)
 
 /// Shape copied from the live payload (2026-11-12): per-entry aliases/oldnames/

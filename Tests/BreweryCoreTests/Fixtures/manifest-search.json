@@ -7,8 +7,8 @@
     "ace": { "stable_version": "8.0.8", "desc": "ACE text adventure engine port" }
   },
   "casks": {
-    "iterm2": { "version": "3.5.11", "tap_string": "homebrew/cask", "name": "iTerm" },
-    "google-chrome": { "version": "130.0", "tap_string": "homebrew/cask", "name": "Google Chrome" },
-    "wireshark-app": { "version": "4.6.9", "tap_string": "homebrew/cask", "name": "Wireshark" }
+    "iterm2": { "version": "3.5.11", "tap_string": "homebrew/cask", "name": "iTerm", "desc": "Terminal emulator as alternative to Apple's Terminal app" },
+    "google-chrome": { "version": "130.0", "tap_string": "homebrew/cask", "name": "Google Chrome", "desc": "Web browser" },
+    "wireshark-app": { "version": "4.6.9", "tap_string": "homebrew/cask", "name": "Wireshark", "desc": "Network protocol analyzer" }
   }
 }

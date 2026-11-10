@@ -8,7 +8,7 @@
     "openssl@4": { "stable_version": "4.0.0", "desc": "Cryptography toolkit", "aliases": ["openssl"] }
   },
   "casks": {
-    "kiro-cli": { "version": "1.2.0", "tap_string": "homebrew/cask", "name": "Kiro", "names": ["Kiro", "Kiro IDE"] },
+    "kiro-cli": { "version": "1.2.0", "tap_string": "homebrew/cask", "name": "Kiro", "desc": "AI-powered productivity tool for the command-line", "names": ["Kiro", "Kiro IDE"] },
     "app-engine": { "version": "2025.0", "tap_string": "homebrew/cask", "name": "App Engine" }
   },
   "formula_renames": { "annie": "lux" },

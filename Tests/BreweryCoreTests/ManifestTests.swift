@@ -14,6 +14,7 @@ import Testing
     #expect(manifest.formulae["ace"]?.aliases == [])
     #expect(manifest.formulae["ace"]?.oldnames == [])
     #expect(manifest.casks["wireshark-app"]?.names == nil)
+    #expect(manifest.casks["wireshark-app"]?.desc == nil) // mini fixture has no cask desc
     #expect(manifest.formulaRenames == [:])
     #expect(manifest.caskTapMigrations == [:])
 }
@@ -25,6 +26,8 @@ import Testing
     #expect(manifest.formulae["apptainer"]?.oldnames == ["singularity"])
     #expect(manifest.formulae["lux"]?.aliases == [])
     #expect(manifest.casks["kiro-cli"]?.names == ["Kiro", "Kiro IDE"])
+    #expect(manifest.casks["kiro-cli"]?.desc == "AI-powered productivity tool for the command-line")
+    #expect(manifest.casks["app-engine"]?.desc == nil) // desc is missing for some casks
     #expect(manifest.formulaRenames == ["annie": "lux"])
     #expect(manifest.caskRenames == ["amazon-q": "kiro-cli"])
     #expect(manifest.formulaTapMigrations == ["app-engine-go-32": "homebrew/cask/app-engine",

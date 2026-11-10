@@ -154,8 +154,13 @@ shared with the **Installed pane's filter** (`items(..., aliases:)`) — typing 
 old name there ("golang", "singularity") surfaces the installed row it became
 (the 2026-11-10 follow-up: the recall was catalog-only at first).
 
+## Cask desc (phase 3, shipped 2026-11-10)
+
+Manifest cask entries carry `desc` for 5188/7823 casks (compat §29) — decoded
+and passed through `searchCatalog`: cask rows get a desc subtitle and the
+desc-contains (400) tier reaches casks. Casks without one behave exactly as
+before (display-name subtitle).
+
 ## Deferred (phase 3+)
-- Manifest `desc` is formula-only; cask rows show the display name instead. A
-  future manifest decode extension could add cask desc.
 - Tap entries lack desc/version too (tap-info doesn't carry them); richer tap
   search would need a per-tap index the app doesn't have.

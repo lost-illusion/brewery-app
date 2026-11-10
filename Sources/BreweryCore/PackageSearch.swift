@@ -12,7 +12,8 @@ public struct CatalogSearchResult: Identifiable, Hashable, Sendable {
     public let kind: BrewItem.Kind
     public let tap: String
     public let latestVersion: String?
-    /// Manifest descs are formula-only; casks have none.
+    /// Manifest desc: always for formulae, for most casks (5188/7823 live
+    /// 2026-11-10); nil for the rest and for tap entries.
     public let desc: String?
     /// Set when the same name+kind is installed (any tap — a tap package sharing
     /// a core name gets the row's installed affordance and its inventory id).
@@ -83,7 +84,7 @@ public func searchCatalog(manifest: PackageManifest?, installed: [BrewItem], tap
         if kind != .formulae {
             for (token, entry) in manifest.casks {
                 consider(name: token, displayName: entry.name, kind: .cask,
-                         tap: entry.tapString ?? "homebrew/cask", latest: entry.version, desc: nil,
+                         tap: entry.tapString ?? "homebrew/cask", latest: entry.version, desc: entry.desc,
                          aliases: aliasIndex["cask|\(token.lowercased())"] ?? [])
             }
         }
