@@ -297,36 +297,46 @@ struct PackageRow: View {
     let item: BrewItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
+        // Grid, not HStack: the version/description column starts exactly at
+        // the name's x (icon width + spacing), so versions form a scannable
+        // left-aligned column instead of a right-edge sawtooth.
+        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+            GridRow {
                 Image(systemName: item.kind == .formula ? "cube.box" : "shippingbox")
                     .foregroundStyle(.secondary)
-                Text(item.name).fontWeight(.medium)
-                if item.isPinned {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                    .gridCellAnchor(.top)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(item.name).fontWeight(.medium)
+                        if item.isPinned {
+                            Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if item.isDisabled {
+                            Image(systemName: "exclamationmark.octagon.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .help(DeprecationNotice(item)?.text ?? "disabled")
+                        } else if item.isDeprecated {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .help(DeprecationNotice(item)?.text ?? "deprecated")
+                        }
+                    }
+                    // Version on its own line: sharing the name line truncated
+                    // long names to nothing beside date-shaped cask versions
+                    // ("2026-10-20 → 2026-11-05"). lineLimit(1) keeps the old
+                    // fixedSize guarantee (no mid-number wrap in the narrow
+                    // column); middle truncation lets luajit-scale versions
+                    // ("2.1.1793383622") shrink to fit, full text in the tooltip.
+                    versionStatus
+                    if let desc = item.desc {
+                        Text(desc).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if case .listOnly(let reason) = item.sourceState {
+                        Text(reason).font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
-                if item.isDisabled {
-                    Image(systemName: "exclamationmark.octagon.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .help(DeprecationNotice(item)?.text ?? "disabled")
-                } else if item.isDeprecated {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .help(DeprecationNotice(item)?.text ?? "deprecated")
-                }
-                Spacer()
-                // Version text never wraps mid-number (a narrow column broke
-                // "0.39.1 → 0.40.0" across four lines). The middle bar's own
-                // width is pinned in ContentView (navigationSplitViewColumnWidth).
-                versionStatus.fixedSize()
-            }
-            if let desc = item.desc {
-                Text(desc).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            if case .listOnly(let reason) = item.sourceState {
-                Text(reason).font(.caption2).foregroundStyle(.tertiary)
             }
         }
     }
@@ -341,15 +351,21 @@ struct PackageRow: View {
                 Text(installed).foregroundStyle(.secondary)
                 Image(systemName: "arrow.right").foregroundStyle(.green)
                 Text(latest).fontWeight(.semibold).foregroundStyle(.green)
+                    .help(latest)
             }
+            .monospacedDigit()
+            .lineLimit(1).truncationMode(.middle)
         case .upToDate:
             Text(installed).foregroundStyle(.secondary)
+                .monospacedDigit()
         case .selfUpdating:
             HStack(spacing: 4) {
                 Text(installed).foregroundStyle(.secondary)
                 Text("auto").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
             }
+            .monospacedDigit()
+            .lineLimit(1).truncationMode(.middle)
         case nil, .some(.unknown):
             Text("—").foregroundStyle(.tertiary)
                 .help(listOnlyHelp)
