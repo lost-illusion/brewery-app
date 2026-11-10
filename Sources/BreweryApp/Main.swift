@@ -78,7 +78,17 @@ final class HeadlessDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(0.25))
             waited += 0.25
         }
-        let outcome = app.notifications.evaluateReporting(items: app.model.items)
+        // Gate 6 offline finding (2026-11-10): evaluating a failed or
+        // manifest-less refresh produced an empty eligible set that read as
+        // "backlog resolved" — the agent withdrew the delivered digest and
+        // cleared the announced set. Only a complete inventory (ready state AND
+        // manifest data, live or cache-served) may drive the digest decision.
+        let outcome: String
+        if app.model.state == .ready, app.model.manifest != nil {
+            outcome = app.notifications.evaluateReporting(items: app.model.items)
+        } else {
+            outcome = "skipped: inventory incomplete (manifest \(app.model.manifest == nil ? "missing" : "present"))"
+        }
         // Exit-after-async-post is the gate-2 failure mode codex warned about:
         // give the UN delivery callback time to complete before ending the run loop.
         try? await Task.sleep(for: .seconds(3))

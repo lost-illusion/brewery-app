@@ -9,9 +9,10 @@ exec; submission degraded to `spawn failed` / exit 78 while SMAppService status 
 "registered"). The shipped design is now the doc's legacy fallback: an app-managed plain
 LaunchAgent in `~/Library/LaunchAgents` with an absolute `ProgramArguments` path, reloaded
 at GUI launch. Verified end to end: bootstrap + kickstart on the freshly rebuilt binary →
-headless check runs, `last exit code = 0`. Remaining open: gate 4 (sleep catch-up), gate 5's
-crash-window tail, gate 6's offline sub-case, and login-time auto-load of the LaunchAgent
-(legacy behavior, expected — untested).
+headless check runs, `last exit code = 0`. Gate 5's crash-window tail and gate 6's offline
+sub-case closed 2026-11-10 (see the gate entries and the 2026-11-10 addendum). Remaining open:
+gate 4 (sleep catch-up) and login-time auto-load of the LaunchAgent (legacy behavior,
+expected) — both need a real sleep cycle / re-login from the user.
 Architecture advice from a codex advisory session against this repo. **Gate 1
 (signing/authorization) passed 2026-10-31** — evidence below.
 
@@ -172,13 +173,27 @@ Consequence: milestone 1 needs **no new signing identity**.
    completed ("check done"). Same flock guards the GUI's `evaluate()`. Same-day follow-up: the
    headless entry's *outer* lock was removed — flock blocks per-open-file-description, so the
    outer+inner pair had been self-blocking and silently no-op'ing every headless digest check.
-   Still open: the crash window between UN post and state write (exactly-once is not
-   guaranteed — measure the duplicate blast radius).
+   Crash-window tail closed 2026-11-10: `evaluate()` persists state **before** posting the
+   UN request (at-most-once), so a crash between the two leaves the pairs announced with no
+   banner. Measured blast radius (unit test): the next check's new-pair set is empty →
+   `.nothing` — a **duplicate post is structurally impossible**; the loss is exactly one lost
+   digest, bounded by the Outdated pane (still lists the pair) and by the pair's next version
+   bump re-announcing. The non-crash twin — a UN delivery **error** (permission revoked
+   between the authorization check and delivery) — used to swallow the digest the same way;
+   `reArmAnnounced()` now un-announces exactly the failed digest's pairs (coordinator
+   `reArmDelivery` re-takes the check lock, or parks the keys in `pendingReArm` for the next
+   locked evaluate), so the next eligible check re-posts after at most one cooldown.
 6. **Data gate — PASSED (core) 2026-10-31** — real state file replaced with garbage, agent
    kicked: survived (exit 0), did not clobber the file, and the new `evaluateReporting` logged
    "notifications state is unreadable — announcements stay off until it is fixed"; restoring the
-   file produced a normal run. Corrupt→nil unit tests already covered. Open: offline / stale
-   manifest behavior of the agent itself.
+   file produced a normal run. Corrupt→nil unit tests already covered. Offline sub-case
+   closed 2026-11-10 (network-denied `sandbox-exec` sim of the agent — recipe in the 2026-11-10
+   addendum): `brew list`/`info` read the local tap + API caches and the manifest serves from
+   its cache, so the agent finishes a normal stale-but-real check (exit 0, digest evaluated).
+   With the manifest cache removed as well, the agent logs "skipped: inventory incomplete" and
+   leaves the state file **byte-identical**: a manifest-less empty eligible set no longer reads
+   as "backlog resolved" and withdraws the delivered digest (readiness guard at all four
+   evaluate call sites).
 7. **Lifecycle gate — PASSED (core) 2026-10-31** — `make-app-bundle.sh` deletes/recreates/
    re-signs the bundle every build. Under SMAppService this initially survived but eventually
    wedged the job (the codesign findings above are that story). Under the shipped plain-LaunchAgent
@@ -208,6 +223,30 @@ runner, every check read the pre-bump tap definition until some outside process 
   `--check-updates` agent run `brew update` before reading (skipped while an external brew
   runs; a failed update is non-fatal). GUI-initiated refresh (launch/focus/⌘R) still never
   runs it.
+
+## Addendum 2026-11-10 — gate 5 + gate 6 tails: readiness guard + delivery re-arm
+
+- **Readiness guard** (Main.swift headless, both `BreweryApp.swift` coordinator hooks, the
+  `ContentView` inventoryUpdated hook): evaluate runs only when `model.state == .ready`
+  **and** `model.manifest != nil`. Unguarded, a failed — or manifest-less but successful —
+  refresh handed `evaluate` an empty eligible set, which `digestDecision` reads as
+  `.backlogResolved`: the delivered digest is withdrawn and `announced` cleared. Latent by
+  code inspection: NOT observed live — the live `announced: []` found during measurement was a
+  legitimate resolved backlog (brew itself reported zero outdated pairs at that moment, after
+  the agent's own totals fell 14 → 10 → 0 through the day). Side effect: an enable-time
+  backlog digest now waits for the first complete refresh instead of possibly evaluating a
+  not-yet-loaded model.
+- **Delivery re-arm** (gate 5 tail): core `reArmAnnounced(state,failed:)` + coordinator
+  `reArmDelivery` (lock-guarded direct un-announce, `pendingReArm` fallback consumed under the
+  next evaluate's lock; `lastDigestAt` untouched so the retry waits ≤ one cooldown). Crash
+  semantics deliberately unchanged — at-most-once by the save→post order; unit tests pin
+  no-duplication and the one-bump bound.
+- **Offline sim recipe** (read-only, no admin):
+  `sandbox-exec -p '(version 1)(allow default)(deny network*)' build/Brewery.app/Contents/MacOS/Brewery --check-updates`;
+  remove `manifest-cache.json` first to hit the no-cache case (restore after). Suite: 278 tests.
+- Gate 4 (sleep catch-up) and login-time auto-load remain open for a mechanical reason: they
+  need a real sleep across the hourly boundary and a real re-login — not observable from a
+  tool session.
 
 Docs consulted (via codex advisory): Apple TN3127, TN2206, UserNotifications authorization and
 handling guides, SMAppService migration guide, managing background processes (AppKit),

@@ -122,6 +122,54 @@ private func key(_ kind: BrewItem.Kind, _ name: String, _ version: String) -> Up
     #expect(loaded == state)
 }
 
+// MARK: - Gate 5 tails (2026-11-10): crash window + delivery-failure re-arm
+
+@Test func decision_crashAfterSaveBeforePost_neverDuplicates() {
+    // Measured blast radius of the coordinator's at-most-once order (save state
+    // → post UN). A crash in that window leaves the pairs persisted as announced
+    // with no banner delivered: the next check sees no new pairs → .nothing, so
+    // a duplicate post is structurally impossible. The loss is exactly one
+    // digest per crash — and bounded: the Outdated pane still lists the pair,
+    // and its NEXT version bump re-announces (second half).
+    let t0 = Date(timeIntervalSinceReferenceDate: 0)
+    var crashed = UpdateNotifyState()
+    crashed.announced = [key(.formula, "ace", "8.1.0")]
+    crashed.lastDigestAt = t0 // as written by the announce save
+    let next = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: crashed,
+                              now: t0.addingTimeInterval(25 * 3_600))
+    #expect(next.action == .nothing)
+    let bump = digestDecision(current: [key(.formula, "ace", "8.2.0")], stored: next.newState!,
+                              now: t0.addingTimeInterval(26 * 3_600))
+    if case .announce = bump.action { } else { Issue.record("expected announce") }
+}
+
+@Test func reArm_deliveryFailureUnannouncesOnlyTheFailedPairs() {
+    var stored = UpdateNotifyState()
+    stored.announced = [key(.formula, "ace", "8.1.0"), key(.cask, "wi", "4.4.6")]
+    stored.lastDigestAt = Date(timeIntervalSinceReferenceDate: 0)
+    let rearmed = reArmAnnounced(stored, failed: [key(.formula, "ace", "8.1.0")])
+    #expect(rearmed.announced == [key(.cask, "wi", "4.4.6")])
+    #expect(rearmed.lastDigestAt == stored.lastDigestAt) // cooldown not consumed a second time
+    // Keys the state never held: no-op.
+    #expect(reArmAnnounced(stored, failed: [key(.formula, "ghost", "1.0")]) == stored)
+}
+
+@Test func decision_reArmedPairReAnnouncesOnNextCheckPastCooldown() {
+    // reArmAnnounced alone doesn't re-post — the next eligible check does. With
+    // lastDigestAt kept, the hourly check lands past the 1 h cooldown.
+    let t0 = Date(timeIntervalSinceReferenceDate: 0)
+    var stored = UpdateNotifyState()
+    stored.announced = [key(.formula, "ace", "8.1.0")]
+    stored.lastDigestAt = t0
+    let rearmed = reArmAnnounced(stored, failed: [key(.formula, "ace", "8.1.0")])
+    let outcome = digestDecision(current: [key(.formula, "ace", "8.1.0")], stored: rearmed,
+                                 now: t0.addingTimeInterval(3_700))
+    if case .announce(let text, let total) = outcome.action {
+        #expect(total == 1)
+        #expect(text.title == "1 package has a newer version")
+    } else { Issue.record("expected announce") }
+}
+
 @Test func store_corruptFileSurfacesAsNilNotEmpty() throws {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("brewery-test-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

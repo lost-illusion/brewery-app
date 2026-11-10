@@ -141,8 +141,13 @@ struct ContentView: View {
             // Every completed inventory refresh — including tap-action and upgrade
             // re-reads inside the model — flows into the digest check. An upgrade
             // can move the selected row out of the pane it was selected in, so
-            // the same staleness drop runs here.
-            if updated != nil { app.notifications.evaluate(items: app.model.items) }
+            // the same staleness drop runs here. Gate 6 (2026-11-10): a successful
+            // refresh can still lack manifest version data; evaluating its empty
+            // eligible set would withdraw the delivered digest. Same readiness
+            // guard as the headless entry and the coordinator hooks.
+            if updated != nil, app.model.state == .ready, app.model.manifest != nil {
+                app.notifications.evaluate(items: app.model.items)
+            }
             dropStaleSelection()
         }
         .onChange(of: app.openOutdatedRequested) { _, requested in

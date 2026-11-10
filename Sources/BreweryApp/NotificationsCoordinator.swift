@@ -48,6 +48,10 @@ final class NotificationsCoordinator: NSObject {
     /// A failed state write pauses announcements: without durable dedup the same
     /// digest would re-ban on every check (design §Notification content & dedup).
     private var writesBroken = false
+    /// Gate 5 tail: pairs from a digest whose UN delivery errored. Normally
+    /// re-armed directly; held here when the check lock is busy (the other
+    /// process is mid-save) and consumed under the lock at the next evaluate.
+    private var pendingReArm: Set<UpdateKey> = []
     private var activityScheduled = false
 
     /// `headless` skips the in-process scheduler: the launchd agent is the one
@@ -234,9 +238,14 @@ final class NotificationsCoordinator: NSObject {
         }
         defer { lock.release() }
 
-        guard let stored = store.load() else {
+        guard var stored = store.load() else {
             statusMessage = "notifications state is unreadable — announcements stay off until it is fixed"
             return statusMessage
+        }
+        if !pendingReArm.isEmpty {
+            // A re-arm that found the lock busy lands here, under the lock.
+            stored = reArmAnnounced(stored, failed: pendingReArm)
+            pendingReArm = []
         }
         let current = eligibleUpdateKeys(items: items)
         let outcome = digestDecision(current: current, stored: stored, now: Date())
@@ -253,8 +262,8 @@ final class NotificationsCoordinator: NSObject {
         switch outcome.action {
         case .announce(let text, let total):
             pendingNewCount = 0
-            post(title: text.title, body: text.body, identifier: digestIdentifier)
             lastDigestAt = outcome.newState?.lastDigestAt ?? Date()
+            post(title: text.title, body: text.body, identifier: digestIdentifier, reArmOnFailure: current)
             return "announced: \(total) eligible"
         case .deferredNew:
             pendingNewCount = current.subtracting(stored.announced).count
@@ -278,7 +287,7 @@ final class NotificationsCoordinator: NSObject {
              identifier: testIdentifier)
     }
 
-    private func post(title: String, body: String, identifier: String) {
+    private func post(title: String, body: String, identifier: String, reArmOnFailure: Set<UpdateKey>? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -289,8 +298,43 @@ final class NotificationsCoordinator: NSObject {
         UNUserNotificationCenter.current()
             .add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
                 guard let error else { return }
-                Task { @MainActor in self.statusMessage = "delivery failed: \(error.localizedDescription)" }
+                Task { @MainActor in
+                    if let keys = reArmOnFailure {
+                        self.reArmDelivery(keys, reason: error.localizedDescription)
+                    } else {
+                        self.statusMessage = "delivery failed: \(error.localizedDescription)"
+                    }
+                }
             }
+    }
+
+    /// Gate 5 tail: a digest's pairs were persisted as announced before posting
+    /// (at-most-once ordering), so a delivery error must undo that marking —
+    /// otherwise every later check sees the pairs as consumed and the banner is
+    /// swallowed forever. Takes the check lock so a concurrent GUI/headless
+    /// check cannot interleave a load-save over this one; if the other process
+    /// is mid-save the keys wait in `pendingReArm` for the next evaluate.
+    /// `lastDigestAt` is left alone: the retry waits out at most one cooldown.
+    private func reArmDelivery(_ keys: Set<UpdateKey>, reason: String) {
+        guard let lock = UpdateCheckLock.tryAcquire(directory: storeDirectory) else {
+            pendingReArm.formUnion(keys)
+            statusMessage = "delivery failed: \(reason) — digest re-armed at the next check"
+            return
+        }
+        defer { lock.release() }
+        guard var stored = store.load() else {
+            writesBroken = true
+            statusMessage = "notifications state is unreadable — announcements stay off until it is fixed"
+            return
+        }
+        stored = reArmAnnounced(stored, failed: keys)
+        do {
+            try store.save(stored)
+            statusMessage = "delivery failed: \(reason) — digest re-armed for the next check"
+        } catch {
+            writesBroken = true
+            statusMessage = "could not write notifications state — announcements paused"
+        }
     }
 
     private func refreshAuthorizationSummary() {

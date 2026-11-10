@@ -59,10 +59,15 @@ final class AppState {
         notifications.onScheduledTick = { [weak self] in
             guard let self else { return }
             await self.model.refresh(reason: .manual, updateTaps: true)
+            // Gate 6 (2026-11-10): never evaluate a failed or manifest-less
+            // refresh — its empty eligible set reads as "backlog resolved" and
+            // silently withdraws the delivered digest. Same guard as headless.
+            guard self.model.state == .ready, self.model.manifest != nil else { return }
             self.notifications.evaluate(items: self.model.items)
         }
         notifications.onReadyToEvaluate = { [weak self] in
             guard let self else { return }
+            guard self.model.state == .ready, self.model.manifest != nil else { return }
             self.notifications.evaluate(items: self.model.items)
         }
         notifications.onOpenOutdated = { [weak self] in self?.openOutdatedRequested = Date() }

@@ -139,3 +139,15 @@ public func digestDecision(current: Set<UpdateKey>, stored: UpdateNotifyState,
     return DigestOutcome(action: .announce(text: updateDigestText(eligible: current), total: current.count),
                          newState: next)
 }
+
+/// Gate 5 tail (2026-11-10): the coordinator persists `announced` *before*
+/// posting (at-most-once ordering), so a digest whose UN delivery errored would
+/// otherwise be swallowed — every later check sees the pairs as "already
+/// announced" and the banner never returns. Un-announce exactly the failed
+/// digest's pairs so the next eligible check re-posts. `lastDigestAt` stays:
+/// the retry waits out at most one digest cooldown instead of re-firing hot.
+public func reArmAnnounced(_ state: UpdateNotifyState, failed: Set<UpdateKey>) -> UpdateNotifyState {
+    var next = state
+    next.announced.subtract(failed)
+    return next
+}
