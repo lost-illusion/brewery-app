@@ -189,7 +189,8 @@ struct ContentView: View {
     /// recomputed per render (a few ms over ~14k slim entries).
     private var catalogResults: [CatalogSearchResult] {
         searchCatalog(manifest: app.model.manifest, installed: app.model.items,
-                      taps: app.model.taps, query: installQuery, kind: installKind)
+                      taps: app.model.taps, query: installQuery, kind: installKind,
+                      aliases: app.model.manifestAliases)
     }
 
     /// Clears a selection the current pane no longer lists. The detail column
@@ -208,7 +209,8 @@ struct ContentView: View {
         }
         if !isVisible(app.model.items, selectedID: selectedID, in: navigation,
                       query: query.isEmpty ? nil : query, kind: kindFilter,
-                      greedy: app.model.settings.greedyOutdated) {
+                      greedy: app.model.settings.greedyOutdated,
+                      aliases: app.model.manifestAliases) {
             selectedID = nil
         }
     }

@@ -37,8 +37,11 @@ public struct CatalogSearchResult: Identifiable, Hashable, Sendable {
 ///   manifest with poorer data (compat §7), and a core tap checked out on disk is
 ///   deduplicated against the manifest, which carries desc + latest version.
 /// - no jq → `brew tap` yields names only → tap contents are simply absent.
+/// `aliases` lets callers reuse a precomputed manifestAliasIndex (the model does
+/// this per refresh); nil builds one for this query.
 public func searchCatalog(manifest: PackageManifest?, installed: [BrewItem], taps: [TapInfo],
-                          query: String, kind: KindFilter) -> [CatalogSearchResult] {
+                          query: String, kind: KindFilter,
+                          aliases: [String: [AliasTerm]]? = nil) -> [CatalogSearchResult] {
     let q = query.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     guard !q.isEmpty else { return [] }
 
@@ -68,56 +71,20 @@ public func searchCatalog(manifest: PackageManifest?, installed: [BrewItem], tap
         scored.append((score: best, name: name, result: result))
     }
 
+    let aliasIndex = aliases ?? (manifest.map(manifestAliasIndex) ?? [:])
     if let manifest {
-        // Match entry points per canonical row, built once per query. Per-entry
-        // lists plus the inverted top-level rename maps; tap migrations attach
-        // the old identifier to the destination row when the manifest lists the
-        // destination (targets it no longer lists are skipped — the app can
-        // preview and install only what the catalog holds). Same-name migrations
-        // need no entry: the destination already matches by name.
-        var formulaAliases: [String: [AliasTerm]] = [:]
-        var caskAliases: [String: [AliasTerm]] = [:]
-        for (name, entry) in manifest.formulae {
-            var terms = entry.aliases.map { AliasTerm(term: $0, hint: "aka \($0)") }
-            terms += entry.oldnames.map { AliasTerm(term: $0, hint: "renamed from \($0)") }
-            formulaAliases[name] = terms
-        }
-        for (token, entry) in manifest.casks {
-            let display = entry.name?.lowercased()
-            let terms = (entry.names ?? [])
-                .filter { $0.lowercased() != token.lowercased() && $0.lowercased() != display }
-                .map { AliasTerm(term: $0, hint: "aka \($0)") }
-            caskAliases[token] = terms
-        }
-        for (old, new) in manifest.formulaRenames where new != old {
-            formulaAliases[new, default: []].append(AliasTerm(term: old, hint: "renamed from \(old)"))
-        }
-        for (old, new) in manifest.caskRenames where new != old {
-            caskAliases[new, default: []].append(AliasTerm(term: old, hint: "renamed from \(old)"))
-        }
-        for (old, destination) in manifest.formulaTapMigrations {
-            let (tap, name) = migrationTarget(destination, fallbackName: old)
-            guard name != old, manifest.casks[name] != nil, tap.lowercased().hasPrefix("homebrew/cask") else { continue }
-            caskAliases[name, default: []].append(AliasTerm(term: old, hint: "moved from \(old)"))
-        }
-        for (old, destination) in manifest.caskTapMigrations {
-            let (tap, name) = migrationTarget(destination, fallbackName: old)
-            guard name != old, manifest.formulae[name] != nil, !tap.lowercased().hasPrefix("homebrew/cask") else { continue }
-            formulaAliases[name, default: []].append(AliasTerm(term: old, hint: "moved from \(old)"))
-        }
-
         if kind != .casks {
             for (name, entry) in manifest.formulae {
                 consider(name: name, displayName: nil, kind: .formula, tap: "homebrew/core",
                          latest: entry.stableVersion, desc: entry.desc,
-                         aliases: formulaAliases[name] ?? [])
+                         aliases: aliasIndex["formula|\(name.lowercased())"] ?? [])
             }
         }
         if kind != .formulae {
             for (token, entry) in manifest.casks {
                 consider(name: token, displayName: entry.name, kind: .cask,
                          tap: entry.tapString ?? "homebrew/cask", latest: entry.version, desc: nil,
-                         aliases: caskAliases[token] ?? [])
+                         aliases: aliasIndex["cask|\(token.lowercased())"] ?? [])
             }
         }
     }
@@ -162,9 +129,53 @@ public func searchCatalog(manifest: PackageManifest?, installed: [BrewItem], tap
 }
 
 /// One alternate name a row also answers to, plus the caption explaining it.
-private struct AliasTerm {
-    let term: String
-    let hint: String
+public struct AliasTerm: Hashable, Sendable {
+    public let term: String
+    public let hint: String
+    public init(term: String, hint: String) { self.term = term; self.hint = hint }
+}
+
+/// Alternate names per installed/catalog row, keyed `"\(kind)|\(name)"` — the
+/// same key shape InventoryModel's installed cross-ref uses. Built once per
+/// manifest (not per query): the Install pane's scorer and the Installed pane's
+/// filter share it, so "golang" finds installed `go` too. Payload semantics:
+/// compat §29.
+public func manifestAliasIndex(_ manifest: PackageManifest) -> [String: [AliasTerm]] {
+    var index: [String: [AliasTerm]] = [:]
+    func add(_ kind: BrewItem.Kind, _ name: String, _ term: AliasTerm) {
+        index["\(kind)|\(name.lowercased())", default: []].append(term)
+    }
+    for (name, entry) in manifest.formulae {
+        for alias in entry.aliases { add(.formula, name, AliasTerm(term: alias, hint: "aka \(alias)")) }
+        for old in entry.oldnames { add(.formula, name, AliasTerm(term: old, hint: "renamed from \(old)")) }
+    }
+    for (token, entry) in manifest.casks {
+        let display = entry.name?.lowercased()
+        for alt in entry.names ?? [] where alt.lowercased() != token.lowercased() && alt.lowercased() != display {
+            add(.cask, token, AliasTerm(term: alt, hint: "aka \(alt)"))
+        }
+    }
+    for (old, new) in manifest.formulaRenames where new != old {
+        add(.formula, new, AliasTerm(term: old, hint: "renamed from \(old)"))
+    }
+    for (old, new) in manifest.caskRenames where new != old {
+        add(.cask, new, AliasTerm(term: old, hint: "renamed from \(old)"))
+    }
+    // Migrations attach the old identifier to the destination row of the
+    // opposite kind — but only when the manifest lists the destination (the app
+    // can only preview/install what the catalog holds). Same-name migrations
+    // need no entry: the destination already matches by name.
+    for (old, destination) in manifest.formulaTapMigrations {
+        let (tap, name) = migrationTarget(destination, fallbackName: old)
+        guard name != old, manifest.casks[name] != nil, tap.lowercased().hasPrefix("homebrew/cask") else { continue }
+        add(.cask, name, AliasTerm(term: old, hint: "moved from \(old)"))
+    }
+    for (old, destination) in manifest.caskTapMigrations {
+        let (tap, name) = migrationTarget(destination, fallbackName: old)
+        guard name != old, manifest.formulae[name] != nil, !tap.lowercased().hasPrefix("homebrew/cask") else { continue }
+        add(.formula, name, AliasTerm(term: old, hint: "moved from \(old)"))
+    }
+    return index
 }
 
 /// Splits a migration destination ("homebrew/cask" keeps the name;

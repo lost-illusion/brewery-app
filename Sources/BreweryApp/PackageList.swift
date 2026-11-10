@@ -14,7 +14,7 @@ struct PackageList: View {
 
     private var filtered: [BrewItem] {
         let rows = items(model.items, in: section, query: query.isEmpty ? nil : query,
-                         greedy: model.settings.greedyOutdated)
+                         greedy: model.settings.greedyOutdated, aliases: model.manifestAliases)
         // The kind segment only governs the Installed pane; other sections
         // already filter by their own rule.
         return section == .all ? items(rows, kind: kindFilter) : rows

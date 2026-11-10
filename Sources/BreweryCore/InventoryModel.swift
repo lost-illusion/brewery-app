@@ -127,6 +127,10 @@ public final class InventoryModel {
     /// The core catalog manifest from the last refresh (drives the Install pane's
     /// search, design 2026-11-02); nil until a refresh has fetched it.
     public private(set) var manifest: PackageManifest?
+    /// Alternate names per installed row (manifestAliasIndex over the last
+    /// manifest) — lets the Installed pane's filter recall old/alias names
+    /// ("golang" → installed go). Compat §29.
+    public private(set) var manifestAliases: [String: [AliasTerm]] = [:]
     public var settings: InventorySettings
 
     private let runner: CommandRunning
@@ -245,6 +249,7 @@ public final class InventoryModel {
                 versionDataAsOf = nil // no info → no bottleTag → manifest step skipped
             }
             self.manifest = manifest
+            self.manifestAliases = manifest.map(manifestAliasIndex) ?? [:]
             manifestBottleTag = manifest != nil ? bottleTag : nil
             applyPolicy(to: &merged, manifest: manifest)
 

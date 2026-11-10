@@ -33,8 +33,12 @@ public func items(_ items: [BrewItem], kind: KindFilter) -> [BrewItem] {
 }
 
 /// Local filtering only — never re-queries brew (spec Goal 5).
-public func items(_ items: [BrewItem], in section: Section, query: String?, greedy: Bool) -> [BrewItem] {
-    items.filter { matchesSection($0, section, greedy: greedy) && matchesQuery($0, query) }
+/// `aliases` is the manifest's alternate-name index (manifestAliasIndex):
+/// typing an old/alias name ("golang", "singularity") surfaces the row it
+/// became, same recall as the Install pane.
+public func items(_ items: [BrewItem], in section: Section, query: String?, greedy: Bool,
+                  aliases: [String: [AliasTerm]] = [:]) -> [BrewItem] {
+    items.filter { matchesSection($0, section, greedy: greedy) && matchesQuery($0, query, aliases: aliases) }
 }
 
 /// Whether the row the given id selects is visible in the given pane's list —
@@ -44,11 +48,12 @@ public func items(_ items: [BrewItem], in section: Section, query: String?, gree
 /// (2026-11-02: sidebar on an empty Outdated pane, right pane still showing the
 /// cask selected in Installed moments earlier).
 public func isVisible(_ inventory: [BrewItem], selectedID: String?, in section: Section,
-                      query: String?, kind: KindFilter, greedy: Bool) -> Bool {
+                      query: String?, kind: KindFilter, greedy: Bool,
+                      aliases: [String: [AliasTerm]] = [:]) -> Bool {
     guard let selectedID else { return true } // nothing selected — nothing stale
     // Kind is the Installed pane's segment only (PackageList applies it there);
     // the other panes' section rule already decides membership.
-    let rows = items(inventory, in: section, query: query, greedy: greedy)
+    let rows = items(inventory, in: section, query: query, greedy: greedy, aliases: aliases)
     return items(rows, kind: section == .all ? kind : .all).contains { $0.id == selectedID }
 }
 
@@ -73,9 +78,12 @@ private func matchesSection(_ item: BrewItem, _ section: Section, greedy: Bool) 
     }
 }
 
-private func matchesQuery(_ item: BrewItem, _ query: String?) -> Bool {
+private func matchesQuery(_ item: BrewItem, _ query: String?, aliases: [String: [AliasTerm]]) -> Bool {
     guard let query, !query.isEmpty else { return true }
     if item.name.localizedCaseInsensitiveContains(query) { return true }
     if let desc = item.desc, desc.localizedCaseInsensitiveContains(query) { return true }
-    return false
+    // Alias recall (compat §29): contains-only, mirroring the base rule — the
+    // Installed filter has no scoring to lean on.
+    let terms = aliases["\(item.kind)|\(item.name.lowercased())"] ?? []
+    return terms.contains { $0.term.localizedCaseInsensitiveContains(query) }
 }

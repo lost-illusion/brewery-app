@@ -149,6 +149,10 @@ unmatched rows surface, captioned `aka X` / `renamed from X` / `moved from X`
 (`CatalogSearchResult.matchHint`, shown in the row subtitle and preview).
 Migrations attach the old identifier to the destination row of the opposite
 kind when the manifest lists it; same-name and unlisted destinations add nothing.
+`manifestAliasIndex` is computed once per refresh (`model.manifestAliases`) and
+shared with the **Installed pane's filter** (`items(..., aliases:)`) — typing an
+old name there ("golang", "singularity") surfaces the installed row it became
+(the 2026-11-10 follow-up: the recall was catalog-only at first).
 
 ## Deferred (phase 3+)
 - Manifest `desc` is formula-only; cask rows show the display name instead. A

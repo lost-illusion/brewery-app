@@ -56,6 +56,27 @@ private func fixtureItems() throws -> [BrewItem] {
     #expect(items(rows, in: .all, query: nil, greedy: false).count == 5)
 }
 
+@Test func sections_aliasRecallForInstalledRows() throws {
+    // Installed go answers to "golang": the Installed-pane filter takes the same
+    // manifest alias index the Install pane scores with (compat §29).
+    let listJSON = """
+    {"formulae": [{"name": "apptainer", "versions": ["1.4.5"], "linked_version": "1.4.5",
+      "optlinked_version": "1.4.5", "pinned_version": null}],
+     "casks": [{"token": "kiro-cli", "versions": ["1.2.0"], "pinned_version": null}]}
+    """
+    let list = try ListSnapshot.decode(Data(listJSON.utf8))
+    let rows = InventoryMerger.merge(list: list, info: InfoSnapshot(formulae: [], casks: []))
+    let manifest = try PackageManifest.decode(jwsData: fixtureData("manifest-aliases.json"))
+    let aliases = manifestAliasIndex(manifest)
+    #expect(items(rows, in: .all, query: "singularity", greedy: false, aliases: aliases).map(\.name) == ["apptainer"])
+    #expect(items(rows, in: .all, query: "amazon-q", greedy: false, aliases: aliases).map(\.name) == ["kiro-cli"])
+    // Without the index the same query finds nothing — the recall is the feature.
+    #expect(items(rows, in: .all, query: "singularity", greedy: false).isEmpty)
+    // A row selected through an alias must not be dropped as a stale selection.
+    #expect(isVisible(rows, selectedID: "apptainer", in: .all, query: "singularity", kind: .all, greedy: false, aliases: aliases))
+    #expect(!isVisible(rows, selectedID: "apptainer", in: .all, query: "singularity", kind: .all, greedy: false))
+}
+
 @Test func sections_isVisibleDropsSelectionsOutsideThePane() throws {
     let rows = try fixtureItems()
     let revmux = try #require(rows.first { $0.name == "revmux" })
