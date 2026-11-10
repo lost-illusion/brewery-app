@@ -7,6 +7,14 @@ private func splitTapName(_ name: String) -> (user: String?, repo: String?) {
     return (String(parts[0]), String(parts[1]))
 }
 
+/// brew's naming rule (§7): tap name `user/repo` clones `github.com/user/homebrew-repo`;
+/// a repo already spelled `homebrew-x` is cloned as-is — the short tap name drops that prefix.
+public func tapCloneURL(user: String, repo: String) -> String {
+    repo.lowercased().hasPrefix("homebrew-")
+        ? "https://github.com/\(user)/\(repo)"
+        : "https://github.com/\(user)/homebrew-\(repo)"
+}
+
 /// One tap as reported by `brew tap-info --installed --json` (compat §7).
 /// Output is a bare JSON array. Official API-mode taps report only the identity
 /// block; a tap cloned on disk adds the git block (`remote`, `HEAD`, …).
@@ -40,7 +48,7 @@ public struct TapInfo: Identifiable, Hashable, Codable {
     /// The GitHub URL `brew tap <user>/<repo>` would clone (§7 naming rule).
     public var resolvedRemote: String? {
         guard let user, let repo else { return nil }
-        return "https://github.com/\(user)/homebrew-\(repo)"
+        return tapCloneURL(user: user, repo: repo)
     }
 
     /// Placeholder row for the no-jq fallback (`brew tap` prints names only).

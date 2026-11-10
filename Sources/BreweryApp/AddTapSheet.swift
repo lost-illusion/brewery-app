@@ -66,12 +66,14 @@ struct AddTapSheet: View {
         .frame(width: 440)
     }
 
+    /// Names the repository brew will clone, both for the GitHub shortcut form
+    /// (brew's own `homebrew-` naming rule) and for a custom remote. The user
+    /// cannot know the repo behind a short tap name without this.
     private var preview: String {
         guard case .success(let parts) = parseTapName(name) else { return "waiting for a tap name" }
         let trimmed = remote.trimmingCharacters(in: .whitespacesAndNewlines)
-        let target = trimmed.isEmpty ? "https://github.com/\(parts.user)/homebrew-\(parts.repo)" : trimmed
-        return "brew tap \(parts.user)/\(parts.repo) \(trimmed.isEmpty ? "" : target)"
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let clone = trimmed.isEmpty ? tapCloneURL(user: parts.user, repo: parts.repo) : trimmed
+        return "brew tap \(parts.user)/\(parts.repo) — clones \(clone)"
     }
 
     private var validationProblem: String? {

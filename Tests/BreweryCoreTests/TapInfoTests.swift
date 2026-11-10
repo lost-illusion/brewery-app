@@ -112,6 +112,15 @@ private func problem(_ raw: String) -> TapNameProblem? {
     return nil
 }
 
+@Test func tapCloneURL_appliesBrewsNamingRule() {
+    // short name → homebrew- prefixed repo (the case a user cannot guess from a site's "user/tap" link)
+    #expect(tapCloneURL(user: "proxysoul", repo: "tap") == "https://github.com/proxysoul/homebrew-tap")
+    #expect(tapCloneURL(user: "umputun", repo: "apps") == "https://github.com/umputun/homebrew-apps")
+    // a repo already spelled homebrew- is cloned as-is, not double-prefixed
+    #expect(tapCloneURL(user: "example", repo: "homebrew-mini") == "https://github.com/example/homebrew-mini")
+    #expect(TapInfo(name: "example/homebrew-mini").resolvedRemote == "https://github.com/example/homebrew-mini")
+}
+
 @Test func tapRemote_validation() {
     #expect(validateTapRemote("") == nil) // empty means the GitHub shortcut form
     #expect(validateTapRemote("https://github.com/u/homebrew-r.git") == nil)
