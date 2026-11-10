@@ -5,16 +5,16 @@
 
 ## Changes
 
-Since v0.2.0:
+Since v0.2.1:
 
-- Changed: background update checks now run **hourly on the hour** (was daily at 10:00), and a scheduled run performs `brew update` first so the catalog is fresh before versions are compared. Runs missed while the Mac slept coalesce into one catch-up on wake.
-- Changed: the middle bar is pinned to 230 pt, and version text never wraps mid-number.
-- Fixed: the background update agent now installs correctly when Brewery lives in a folder whose name contains `&` (e.g. `/Applications/foo & bar/Brewery.app`) — the recorded path was breaking the LaunchAgent plist.
-- Known issues / upgrade notes: if the background agent was enabled under v0.2.0, just relaunch Brewery once — it rewrites and reloads the agent automatically.
+- Changed: package list rows are now two lines — name, then version (and description) starting at the name's left edge. Versions read as a digit-aligned column; a too-long version truncates with `…` in the middle instead of being clipped, and the full string stays in the tooltip.
+- Changed: tap list rows get the same two-line treatment — name, then a left-aligned stats line; names no longer split mid-slash.
+- Fixed: a failed tap action (bad tap name, refused untap, …) no longer locks the app — previously one failure disabled every button that could clear it and pinned the error banner. Every failure banner now has a **Dismiss** button, and the add-tap sheet lets you fix the name and retry in place.
+- Fixed: the add-tap preview now names the exact repository `brew tap` will clone.
 
 ## Download and compatibility
 
-Download `brewery-v0.2.1-macos-arm64.zip` from Assets below.
+Download `brewery-v0.2.2-macos-arm64.zip` from Assets below.
 
 Requires macOS 26+, an Apple Silicon (arm64) Mac, and Homebrew installed.
 Verified against Homebrew 7.0.11.
