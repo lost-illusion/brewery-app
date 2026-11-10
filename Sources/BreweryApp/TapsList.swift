@@ -138,29 +138,38 @@ struct TapRow: View {
     let installedCount: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
+        // Grid, not HStack (same as PackageRow): the summary and remote lines
+        // start exactly at the name's x, so stats scan as a left-aligned
+        // column instead of wrapping as a right-edge sawtooth beside the name.
+        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 2) {
+            GridRow {
                 Image(systemName: tap.isExternal ? "arrow.down.app" : "checkmark.seal")
                     .foregroundStyle(tap.isExternal ? .orange : .secondary)
-                Text(tap.name).fontWeight(.medium)
-                if !tap.installed {
-                    Text("API").font(.caption2)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(.quaternary, in: Capsule())
-                        .help("not cloned on disk — Homebrew serves it from the API")
+                    .gridCellAnchor(.top)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(tap.name).fontWeight(.medium)
+                            .lineLimit(1).truncationMode(.middle)
+                        if !tap.installed {
+                            Text("API").font(.caption2)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(.quaternary, in: Capsule())
+                                .help("not cloned on disk — Homebrew serves it from the API")
+                        }
+                        if tap.isExternal, tap.trusted == false {
+                            Image(systemName: "lock.circle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .help("untrusted — brew skips this tap's formulae in catalog queries")
+                        }
+                    }
+                    Text(summary).font(.caption).foregroundStyle(.secondary)
+                        .monospacedDigit().lineLimit(1)
+                    if let remote = tap.remote ?? tap.resolvedRemote {
+                        Text(remote).font(.caption2).foregroundStyle(.tertiary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
                 }
-                if tap.isExternal, tap.trusted == false {
-                    Image(systemName: "lock.circle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .help("untrusted — brew skips this tap's formulae in catalog queries")
-                }
-                Spacer()
-                Text(summary).font(.caption).foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-            if let remote = tap.remote ?? tap.resolvedRemote {
-                Text(remote).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
             }
         }
     }
