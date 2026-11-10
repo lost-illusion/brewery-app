@@ -159,6 +159,11 @@ struct InstallPreview: View {
             if let desc = item.desc, !desc.isEmpty {
                 Text(desc).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
+            // Explains a search hit on an old/alias name: "you searched singularity,
+            // this is the formula it became".
+            if let hint = result.matchHint {
+                Text(hint).font(.caption).foregroundStyle(.secondary)
+            }
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                 if let tap = item.tap { factRow("Tap", tap) }
                 if let latest = item.latestVersion { factRow("Latest", latest) }

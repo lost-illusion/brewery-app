@@ -158,10 +158,14 @@ struct CatalogRow: View {
 
     /// Casks have no manifest desc — their product name is the useful subtitle;
     /// tap entries have neither, so their source tap names the row instead.
+    /// An alias/rename/migration match appends its explanation ("golang" → go
+    /// shows "Go programming language · aka golang").
     private var subtitleText: String? {
-        if let desc = result.desc, !desc.isEmpty { return desc }
-        if let name = result.displayName, name.lowercased() != result.name.lowercased() { return name }
-        if result.isExternalTap { return result.tap }
-        return nil
+        var base: String?
+        if let desc = result.desc, !desc.isEmpty { base = desc }
+        else if let name = result.displayName, name.lowercased() != result.name.lowercased() { base = name }
+        else if result.isExternalTap { base = result.tap }
+        if let hint = result.matchHint { return base.map { "\($0) · \(hint)" } ?? hint }
+        return base
     }
 }

@@ -152,6 +152,91 @@ private func searchTaps() throws -> [TapInfo] {
     #expect(r.map(\.id) == ["umputun/apps/ralphex"])
 }
 
+// MARK: - Alias / rename / tap-migration recall (compat §29)
+
+/// Shape copied from the live payload (2026-11-12): per-entry aliases/oldnames/
+/// names, inverted top-level rename maps, migrations whose destination the
+/// manifest actually lists — plus a same-name migration (gtkwave) and a
+/// core-destination migration (chronograf) that need no entry point at all.
+private func aliasManifest() throws -> PackageManifest {
+    try PackageManifest.decode(jwsData: fixtureData("manifest-aliases.json"))
+}
+
+@Test func search_formulaAlias_recallsAndExplains() throws {
+    let manifest = try aliasManifest()
+    let r = searchCatalog(manifest: manifest, installed: [], taps: [], query: "golang", kind: .all)
+    #expect(r.map(\.id) == ["homebrew/core/go"])
+    #expect(r.first?.matchHint == "aka golang")
+    // A direct hit on the row's own name never shows a hint.
+    let direct = searchCatalog(manifest: manifest, installed: [], taps: [], query: "go", kind: .all)
+    #expect(direct.first?.name == "go")
+    #expect(direct.first?.matchHint == nil)
+    // Versioned formulae alias too: "openssl" finds openssl@4 — but the alias is
+    // also a plain prefix of the versioned name (900), and the alias rule scores
+    // 1000−100 = 900: tie keeps the direct hit, so no hint. By design.
+    let ssl = searchCatalog(manifest: manifest, installed: [], taps: [], query: "openssl", kind: .all)
+    #expect(ssl.map(\.id) == ["homebrew/core/openssl@4"])
+    #expect(ssl.first?.matchHint == nil)
+}
+
+@Test func search_oldnameAndRenameMap_recalls() throws {
+    let manifest = try aliasManifest()
+    let singularity = searchCatalog(manifest: manifest, installed: [], taps: [], query: "singularity", kind: .all)
+    #expect(singularity.map(\.id) == ["homebrew/core/apptainer"])
+    #expect(singularity.first?.matchHint == "renamed from singularity")
+    // "annie" appears nowhere in formulae — only in the top-level rename map.
+    let annie = searchCatalog(manifest: manifest, installed: [], taps: [], query: "annie", kind: .all)
+    #expect(annie.map(\.id) == ["homebrew/core/lux"])
+    #expect(annie.first?.matchHint == "renamed from annie")
+}
+
+@Test func search_caskRenameAndAltNames() throws {
+    let manifest = try aliasManifest()
+    let amazonq = searchCatalog(manifest: manifest, installed: [], taps: [], query: "amazon-q", kind: .all)
+    #expect(amazonq.map(\.id) == ["homebrew/cask/kiro-cli"])
+    #expect(amazonq.first?.matchHint == "renamed from amazon-q")
+    // "ide" matches the alt product name "Kiro IDE" (token prefix −100 = 680);
+    // lux legitimately follows — "ide" is a substring of its desc ("V[ide]o
+    // downloader") at 400. Documented matcher behavior, alias ranks first.
+    let ide = searchCatalog(manifest: manifest, installed: [], taps: [], query: "ide", kind: .all)
+    #expect(ide.map(\.id) == ["homebrew/cask/kiro-cli", "homebrew/core/lux"])
+    #expect(ide.first?.matchHint == "aka Kiro IDE")
+    // Tie rule: "kiro" hits the token (prefix 900) and the display name — the
+    // base match wins the slot, so no hint.
+    let kiro = searchCatalog(manifest: manifest, installed: [], taps: [], query: "kiro", kind: .all)
+    #expect(kiro.first?.name == "kiro-cli")
+    #expect(kiro.first?.matchHint == nil)
+}
+
+@Test func search_tapMigration_attachesOldNameToDestinationRow() throws {
+    let manifest = try aliasManifest()
+    // app-engine-go-32 (formula) → homebrew/cask/app-engine (cask).
+    let r = searchCatalog(manifest: manifest, installed: [], taps: [], query: "app-engine-go-32", kind: .all)
+    #expect(r.map(\.id) == ["homebrew/cask/app-engine"])
+    #expect(r.first?.kind == .cask)
+    #expect(r.first?.matchHint == "moved from app-engine-go-32")
+}
+
+@Test func search_sameNameOrUnlistedMigration_addsNothing() throws {
+    let manifest = try aliasManifest()
+    // gtkwave → "homebrew/cask" keeps its name; nothing to recall, and the
+    // manifest lists no gtkwave cask — the query finds nothing.
+    #expect(searchCatalog(manifest: manifest, installed: [], taps: [], query: "gtkwave", kind: .all).isEmpty)
+    // chronograf moved cask→core; the core row already matches by name (no hint).
+    let chrono = searchCatalog(manifest: manifest, installed: [], taps: [], query: "chronograf", kind: .all)
+    #expect(chrono.map(\.id) == ["homebrew/core/chronograf"])
+    #expect(chrono.first?.matchHint == nil)
+}
+
+@Test func search_aliasNeverOutranksDirectHits() throws {
+    let manifest = try aliasManifest()
+    // "kiro-cli" exact-matches the token (1000); the migration/rename aliases
+    // sit 100 lower, and rows only reachable via an alias rank below real ones.
+    let r = searchCatalog(manifest: manifest, installed: [], taps: [], query: "kiro", kind: .all)
+    #expect(r.first?.name == "kiro-cli")
+    #expect(r.first?.matchHint == nil)
+}
+
 @Test func search_emptyInputsYieldNothing() throws {
     let manifest = try searchManifest()
     #expect(searchCatalog(manifest: manifest, installed: [], taps: [], query: "", kind: .all).isEmpty)

@@ -8,9 +8,16 @@ public struct PackageManifest: Decodable, Sendable {
         public let desc: String?
         public let homepage: String?
         public let license: String?
+        /// brew's alias names for this formula ("golang" → go). Verified 2026-11-12
+        /// on the live payload: the top-level formula_aliases map mirrors these
+        /// lists exactly (0 mismatches over 8723 formulae), so only the per-entry
+        /// form is decoded (compat §29).
+        public let aliases: [String]
+        /// Names this formula used to have (apptainer ← singularity).
+        public let oldnames: [String]
 
         enum CodingKeys: String, CodingKey {
-            case desc, homepage, license
+            case desc, homepage, license, aliases, oldnames
             case stableVersion = "stable_version"
         }
 
@@ -19,6 +26,8 @@ public struct PackageManifest: Decodable, Sendable {
             stableVersion = try c.decodeIfPresent(String.self, forKey: .stableVersion)
             desc = try c.decodeIfPresent(String.self, forKey: .desc)
             homepage = try c.decodeIfPresent(String.self, forKey: .homepage)
+            aliases = try c.decodeIfPresent([String].self, forKey: .aliases) ?? []
+            oldnames = try c.decodeIfPresent([String].self, forKey: .oldnames) ?? []
             // license is a String in most formulae but an SPDX expression object
             // (":all_of"/":any_of"/":with" nesting) in ~10% of the live payload.
             if let s = try? c.decodeIfPresent(String.self, forKey: .license) {
@@ -60,9 +69,14 @@ public struct PackageManifest: Decodable, Sendable {
         public let version: String?
         public let tapString: String?
         public let name: String?
+        /// All product names the cask answers to, including localized ones
+        /// ("115浏览器"). The per-entry `renames` key is deliberately NOT decoded:
+        /// it renames bundled artifact filenames (App.app/pkg names), not the
+        /// cask token — no search value, verified on the live payload 2026-11-12.
+        public let names: [String]?
 
         enum CodingKeys: String, CodingKey {
-            case version, name
+            case version, name, names
             case tapString = "tap_string"
         }
     }
@@ -75,9 +89,21 @@ public struct PackageManifest: Decodable, Sendable {
     public let formulae: [String: FormulaEntry]
     public let casks: [String: CaskEntry]
     public let bottleTag: String?
+    /// old name → new name (formula_renames / cask_renames).
+    public let formulaRenames: [String: String]
+    public let caskRenames: [String: String]
+    /// old name → destination qualified package, "homebrew/cask" (keep the name)
+    /// or "tap/name" (new name too). Live 2026-11-12: formula migrations always
+    /// land in homebrew/cask, cask migrations in homebrew/core (compat §29).
+    public let formulaTapMigrations: [String: String]
+    public let caskTapMigrations: [String: String]
 
     private enum CodingKeys: String, CodingKey {
         case formulae, casks, metadata
+        case formulaRenames = "formula_renames"
+        case caskRenames = "cask_renames"
+        case formulaTapMigrations = "formula_tap_migrations"
+        case caskTapMigrations = "cask_tap_migrations"
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +111,10 @@ public struct PackageManifest: Decodable, Sendable {
         formulae = try c.decodeIfPresent([String: FormulaEntry].self, forKey: .formulae) ?? [:]
         casks = try c.decodeIfPresent([String: CaskEntry].self, forKey: .casks) ?? [:]
         bottleTag = try c.decodeIfPresent(Metadata.self, forKey: .metadata)?.bottleTag
+        formulaRenames = try c.decodeIfPresent([String: String].self, forKey: .formulaRenames) ?? [:]
+        caskRenames = try c.decodeIfPresent([String: String].self, forKey: .caskRenames) ?? [:]
+        formulaTapMigrations = try c.decodeIfPresent([String: String].self, forKey: .formulaTapMigrations) ?? [:]
+        caskTapMigrations = try c.decodeIfPresent([String: String].self, forKey: .caskTapMigrations) ?? [:]
     }
 
     public func latestFormulaVersion(_ name: String) -> String? {

@@ -139,9 +139,18 @@ touching the runner.
   pin/trust finish in tens of ms and a blinking sheet is worse than none; the tail
   stays readable after success, only the sheet closes.
 
+## Alias / rename recall (phase 3, shipped 2026-11-12)
+
+Manifest alias keys are now decoded (`aliases`, `oldnames`, cask `names`, the
+rename + tap-migration maps — payload shapes and gotchas in compat §29) and fed
+into `searchCatalog` as per-row alias terms. A term scores its tier **−100**, so
+direct name hits always outrank aliases and never show a hint; only otherwise-
+unmatched rows surface, captioned `aka X` / `renamed from X` / `moved from X`
+(`CatalogSearchResult.matchHint`, shown in the row subtitle and preview).
+Migrations attach the old identifier to the destination row of the opposite
+kind when the manifest lists it; same-name and unlisted destinations add nothing.
+
 ## Deferred (phase 3+)
-- Formula **aliases/renames/tap-migrations** keys exist in the manifest payload and
-  are not decoded yet — adding them improves recall for renamed packages.
 - Manifest `desc` is formula-only; cask rows show the display name instead. A
   future manifest decode extension could add cask desc.
 - Tap entries lack desc/version too (tap-info doesn't carry them); richer tap

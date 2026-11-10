@@ -9,6 +9,27 @@ import Testing
     #expect(manifest.latestCaskVersion("wireshark-app") == "4.6.9")
     #expect(manifest.latestFormulaVersion("nope") == nil)
     #expect(manifest.latestCaskVersion("nope") == nil)
+    // Alias/rename/migration keys are optional: a payload without them decodes
+    // with empty values (mini fixture predates them).
+    #expect(manifest.formulae["ace"]?.aliases == [])
+    #expect(manifest.formulae["ace"]?.oldnames == [])
+    #expect(manifest.casks["wireshark-app"]?.names == nil)
+    #expect(manifest.formulaRenames == [:])
+    #expect(manifest.caskTapMigrations == [:])
+}
+
+@Test func manifest_decode_aliasRenameAndMigrationKeys() throws {
+    // Live payload shapes (verified 2026-11-12, compat §29).
+    let manifest = try PackageManifest.decode(jwsData: fixtureData("manifest-aliases.json"))
+    #expect(manifest.formulae["go"]?.aliases == ["golang", "google-go"])
+    #expect(manifest.formulae["apptainer"]?.oldnames == ["singularity"])
+    #expect(manifest.formulae["lux"]?.aliases == [])
+    #expect(manifest.casks["kiro-cli"]?.names == ["Kiro", "Kiro IDE"])
+    #expect(manifest.formulaRenames == ["annie": "lux"])
+    #expect(manifest.caskRenames == ["amazon-q": "kiro-cli"])
+    #expect(manifest.formulaTapMigrations == ["app-engine-go-32": "homebrew/cask/app-engine",
+                                              "gtkwave": "homebrew/cask"])
+    #expect(manifest.caskTapMigrations == ["chronograf": "homebrew/core"])
 }
 
 @Test func manifest_decode_liveWrapper() throws {
