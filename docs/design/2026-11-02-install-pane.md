@@ -4,7 +4,7 @@ Status: **phase 1 shipped 2026-11-02**, same day extended to **external taps**
 (§External taps). Search pane: `PackageSearch.swift` core + `InstallList` /
 `InstallPreview` views + `.install` sidebar section. Install itself reuses the
 existing `InventoryModel.installItem` (already proven by the Taps pane).
-Phase 2 (streaming install progress) is planned but not built — see §Deferred.
+Phase 2 (streaming install progress) shipped **2026-11-10** — see §Streaming progress.
 
 ## Goal
 
@@ -26,9 +26,9 @@ search parser.
   The Taps pane uses it (`TapDetail.entryRow` / `previewBody`).
 - `fetchPreview` + `InventoryMerger.preview` answer `brew info --json=v2` for
   not-installed packages — the preview the Taps pane already renders.
-- `BrewRunner` is one-shot (buffers all output until exit) — fine for installs
-  that today complete inside the existing tap-action posture, but it cannot show
-  live progress (§Deferred).
+- `BrewRunner` was one-shot (buffers all output until exit) at design time; phase
+  2 added `runStreaming` alongside it — the buffered `run` stays for the JSON
+  commands (list/info/tap-info/trust), which never need progress.
 
 ## Decision: search source
 
@@ -108,11 +108,38 @@ No match → excluded. Case-insensitive throughout.
 - Selecting an **installed** result hands off to the Installed pane with that row's
   detail open — the Chart precedent (`ContentView`'s topInstalls handoff, same shape).
 
-## Deferred (phase 2+)
+## Streaming progress (phase 2, shipped 2026-11-10)
 
-- **Streaming install progress**: a line-streaming Process runner + a progress sheet
-  showing `==>` output with Cancel. Today's install is opaque-but-correct (banner +
-  spinner via `tapAction`); the runner rewrite is its own milestone.
+Live `==>` output + Cancel for every long mutation (install, uninstall, tap/pin/trust
+actions, upgrade, §27 switch steps). Compat gotchas (grandchild-held pipes, poll
+`POLLIN|POLLHUP`, thread placement, SIGINT posture): compat §28 — read that before
+touching the runner.
+
+- **Core** (`BreweryCore/Streaming.swift`): `BrewCancellationToken` (one-shot, any
+  thread); `BrewLineSplitter` splits `\n`, `\r\n` as one, and bare `\r` (brew's bar
+  rewrites) at byte level so a chunk cut never splits a UTF-8 character;
+  `appendProgressLines` folds consecutive bar frames to the latest and caps the
+  buffer at 300 lines.
+- **Runner** (`BrewRunner.runStreaming`): declared as a `CommandRunning` *requirement*
+  with a buffered extension default — extension-only methods don't dispatch through
+  existentials, and the first cut of this feature shipped exactly that bug (fakes'
+  overrides were shadows). Watchdog polls `cancellation` every 60 ms and calls
+  `interrupt()` (SIGINT → brew exit 130); the pipe reader is one poll loop on the
+  global queue that ends on process exit, not EOF (compat §28). Full stdout/stderr
+  still captured — failure banners unchanged.
+- **Model** (`InventoryModel.withActionProgress`): per-line `AsyncStream` into
+  `actionProgress` (MainActor); `progressActionLabel` drives the sheet;
+  `cancelAction()` feeds the token. Cancel reports `.failed` with
+  "Cancelled — brew was interrupted; partial work may remain — inventory reloaded"
+  (no new enum case — every existing banner switch keeps working) and reloads
+  taps + inventory, unlike a brew refusal. Multi-command actions (upgrade chain,
+  switch steps) share one continuous progress buffer.
+- **UI** (`ActionProgressSheet`): headline = action label, monospaced line tail with
+  auto-scroll, Cancel button (Esc). Presented only after an 800 ms debounce —
+  pin/trust finish in tens of ms and a blinking sheet is worse than none; the tail
+  stays readable after success, only the sheet closes.
+
+## Deferred (phase 3+)
 - Formula **aliases/renames/tap-migrations** keys exist in the manifest payload and
   are not decoded yet — adding them improves recall for renamed packages.
 - Manifest `desc` is formula-only; cask rows show the display name instead. A

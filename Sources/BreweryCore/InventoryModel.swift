@@ -41,7 +41,15 @@ public protocol ManifestFetching: Sendable {
 extension ManifestFetcher: ManifestFetching {}
 
 /// Which brew step an upgrade is running right now (drives the UI progress label).
-public enum UpgradePhase: Equatable { case updatingHomebrew, upgradingPackages }
+public enum UpgradePhase: Equatable {
+    case updatingHomebrew, upgradingPackages
+    public var label: String {
+        switch self {
+        case .updatingHomebrew: "Updating Homebrew…"
+        case .upgradingPackages: "Upgrading packages…"
+        }
+    }
+}
 
 /// A tap mutation the app performed (or is performing). Wording lives here so
 /// the banner names the action the user confirmed, not a generic "working…".
@@ -102,6 +110,11 @@ public final class InventoryModel {
     public private(set) var tapsState: ViewState = .idle
     public private(set) var tapsUpdated: Date?
     public private(set) var tapAction: TapActionState = .idle
+    /// brew output streamed live from the running mutation or upgrade (design
+    /// 2026-11-02 phase 2): `==> …` lines verbatim, consecutive progress-bar
+    /// frames folded (Streaming.swift). Reset when an action starts; the tail
+    /// stays readable after it ends, but the progress sheet shows only while running.
+    public private(set) var actionProgress: [String] = []
     /// true only while a mutation is actually in flight. `.failed` is a message to
     /// read, not a lock: gating buttons on `tapAction != .idle` disabled every
     /// mutation after one brew refusal — and only a successful mutation clears
@@ -128,6 +141,7 @@ public final class InventoryModel {
     private var tapsTask: Task<Void, Never>?
     private var topInstallsTask: Task<Void, Never>?
     private var tapActionTask: Task<Void, Never>?
+    private var actionCancellation: BrewCancellationToken?
     private var lastFailure: Date?
     private static let failureBackoff: TimeInterval = 60
 
@@ -264,6 +278,7 @@ public final class InventoryModel {
     private func runUpgrade(scope: UpgradeScope) async {
         if let existing = upgradeTask { await existing.value; return } // single flight
         if let refresh = refreshTask { await refresh.value } // never two brews fighting our own
+        if let action = tapActionTask { await action.value } // an upgrade must not start mid-mutation (or mid-cancel)
         let task = Task { await self.performUpgrade(scope: scope) }
         upgradeTask = task
         await task.value
@@ -275,40 +290,49 @@ public final class InventoryModel {
             upgrade = .failed(message: "brew is busy (another brew process is running) — wait for it, then retry")
             return
         }
+        let cancellation = BrewCancellationToken()
+        defer { actionCancellation = nil }
         do {
-            // Explicit `brew update` first: brew upgrade consults brew's own API
-            // cache, and the runner's HOMEBREW_NO_AUTO_UPDATE suppresses the
-            // implicit update — without this step upgrade can lag the manifest
-            // the badges were computed from, and say "already up-to-date".
-            upgrade = .running(phase: .updatingHomebrew)
-            let updateRes = try await runner.run(["update"])
-            guard updateRes.exitCode == 0 else { failUpgrade(result: updateRes); return }
+            let failure: String? = try await withActionProgress(cancellation: cancellation) { onLine in
+                // Explicit `brew update` first: brew upgrade consults brew's own API
+                // cache, and the runner's HOMEBREW_NO_AUTO_UPDATE suppresses the
+                // implicit update — without this step upgrade can lag the manifest
+                // the badges were computed from, and say "already up-to-date".
+                upgrade = .running(phase: .updatingHomebrew)
+                let updateRes = try await runner.runStreaming(["update"], onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                guard updateRes.exitCode == 0 else { return failureMessage(for: updateRes) }
 
-            upgrade = .running(phase: .upgradingPackages)
-            // -y: ask mode is brew's default and a TTY prompt would hang the GUI (§77);
-            // the app runs its own confirmation instead.
-            var args: [String] = ["upgrade", "-y"]
-            switch scope {
-            case .all:
-                if settings.greedyOutdated { args.append("--greedy") }
-            case .single(let item):
-                if case .selfUpdating = item.outdated { args.append("--greedy") }
-                args.append(item.fullName)
+                upgrade = .running(phase: .upgradingPackages)
+                // -y: ask mode is brew's default and a TTY prompt would hang the GUI (§77);
+                // the app runs its own confirmation instead.
+                var args: [String] = ["upgrade", "-y"]
+                switch scope {
+                case .all:
+                    if settings.greedyOutdated { args.append("--greedy") }
+                case .single(let item):
+                    if case .selfUpdating = item.outdated { args.append("--greedy") }
+                    args.append(item.fullName)
+                }
+                let upgradeRes = try await runner.runStreaming(args, onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                guard upgradeRes.exitCode == 0 else { return failureMessage(for: upgradeRes) }
+                return nil
             }
-            let upgradeRes = try await runner.run(args)
-            guard upgradeRes.exitCode == 0 else { failUpgrade(result: upgradeRes); return }
-
-            upgrade = .idle
-            // Badges must reflect the new reality: re-read inventory and force
-            // the manifest past its 24 h cache.
-            await performRefresh(forceManifest: true, updateTaps: false)
+            if let failure {
+                upgrade = .failed(message: failure)
+                // An interrupt mid-upgrade leaves some packages upgraded and some not —
+                // unlike a brew refusal, which changed nothing and needs no re-read.
+                if failure == Self.cancelledMessage { await performRefresh(forceManifest: false, updateTaps: false) }
+            } else {
+                upgrade = .idle
+                // Badges must reflect the new reality: re-read inventory and force
+                // the manifest past its 24 h cache.
+                await performRefresh(forceManifest: true, updateTaps: false)
+            }
         } catch {
             upgrade = .failed(message: "brew command failed: \(error.localizedDescription)")
         }
-    }
-
-    private func failUpgrade(result: BrewResult) {
-        upgrade = .failed(message: failureMessage(for: result))
     }
 
     // MARK: - Taps
@@ -329,6 +353,55 @@ public final class InventoryModel {
     /// Clears a tap-action failure message — the × on every failure banner.
     /// Only `.failed` clears; `.running` is an action in flight, never dismissible.
     public func dismissTapAction() { if case .failed = tapAction { tapAction = .idle } }
+
+    /// Label of the mutation/upgrade in flight (the progress sheet's header),
+    /// nil when no brew is running (the sheet closes).
+    public var progressActionLabel: String? {
+        if case .running(let action) = tapAction { return action.label }
+        if case .running(let phase) = upgrade { return phase.label }
+        return nil
+    }
+
+    /// The progress sheet's Cancel: SIGINT to the brew we started — brew traps INT
+    /// and exits 130, the same path Ctrl-C takes in a terminal (`brew.rb:22`).
+    /// Only actions started through the streaming path have a token to cancel.
+    public func cancelAction() { actionCancellation?.cancel() }
+
+    /// Report shown instead of brew's stderr when the user cancelled. Partial work
+    /// may exist after an interrupt, so cancelled actions still reload inventory/taps.
+    static let cancelledMessage = "Cancelled — brew was interrupted; partial work may remain — inventory reloaded"
+
+    /// Runs an action body (possibly several brew commands, via `onLine`-streaming
+    /// runners) while its output lands live in `actionProgress`. The buffer is
+    /// continuous across the commands of one action (version switching) and reset
+    /// at action start.
+    private func withActionProgress<R>(cancellation: BrewCancellationToken,
+                                       _ body: (_ onLine: @escaping @Sendable (String) -> Void) async throws -> R) async throws -> R {
+        actionProgress = []
+        actionCancellation = cancellation
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        let consumer = Task { @MainActor [weak self] in
+            // One append per line: a bar frame folded into the previous bar is a
+            // single in-place replace, so the \r redraw flood costs re-renders,
+            // not buffer growth — and a sparse stream (one line after a quiet
+            // git clone) reaches the sheet on arrival.
+            for await line in stream {
+                guard let self else { return }
+                appendProgressLines([line], to: &self.actionProgress)
+            }
+        }
+        let value: R
+        do {
+            value = try await body({ continuation.yield($0) })
+        } catch {
+            continuation.finish()
+            await consumer.value
+            throw error
+        }
+        continuation.finish()
+        await consumer.value
+        return value
+    }
 
     /// `brew tap user/repo [URL]` (mutating). The GUI confirms first; the name
     /// is validated here too so a malformed target never reaches brew.
@@ -479,56 +552,74 @@ public final class InventoryModel {
     private func performSwitch(action: TapAction, plan: VersionSwitchPlan, destinationTap: String,
                                item: BrewItem, version: String) async {
         tapAction = .running(action)
+        let cancellation = BrewCancellationToken()
+        defer { actionCancellation = nil }
         var failure: String?
         do {
-            switch plan {
-            case .blocked(let reason):
-                failure = reason
-            case .relink(let rack, let unlinkRacks, let kegOnly):
-                for rackName in unlinkRacks {
-                    let res = try await runner.run(["unlink", "--formula", rackName])
-                    if res.exitCode != 0 { failure = failureMessage(for: res); break }
-                }
-                if failure == nil {
-                    var args = ["link", "--formula"]
-                    if kegOnly { args.append("--force") }
-                    args.append(rack)
-                    let res = try await runner.run(args)
-                    if res.exitCode != 0 { failure = failureMessage(for: res) }
-                }
-            case .extractInstall(let sourceName, let ver, let sourceTap, _, let needsClone):
-                if needsClone {
-                    let res = try await runner.run(["tap", sourceTap])
-                    if res.exitCode != 0 { failure = failureMessage(for: res) }
-                }
-                if failure == nil {
-                    let res = try await runner.run(["extract", "--force", "--version=\(ver)", sourceName, destinationTap])
-                    if res.exitCode != 0 {
-                        failure = failureMessage(for: res)
-                    } else {
-                        let lastComponent = sourceName.split(separator: "/").last.map(String.init) ?? sourceName
-                        let formulaName = extractedFormulaName(from: res.stdout,
-                                                               fallbackBase: baseFormulaName(lastComponent),
-                                                               fallbackVersion: ver)
-                        // Unlink before installing so the new keg's symlinks don't
-                        // collide with a currently linked keg of the same product.
-                        for keg in versionFamily(of: item, in: items).filter({ $0.linkedVersion != nil }) {
-                            let unlinkRes = try await runner.run(["unlink", "--formula", keg.fullName])
-                            if unlinkRes.exitCode != 0 { failure = failureMessage(for: unlinkRes); break }
-                        }
-                        if failure == nil {
-                            let installRes = try await runner.run(["install", "-y", "\(destinationTap)/\(formulaName)"])
-                            if installRes.exitCode != 0 { failure = failureMessage(for: installRes) }
-                        }
-                    }
-                }
+            // One continuous progress buffer across the whole unlink/link/extract/
+            // install sequence — the sheet shows each step as it streams.
+            failure = try await withActionProgress(cancellation: cancellation) { onLine in
+                try await self.performSwitchSteps(plan: plan, destinationTap: destinationTap,
+                                                  item: item, version: version,
+                                                  onLine: onLine, cancellation: cancellation)
             }
+            if cancellation.isCancelled { failure = Self.cancelledMessage }
         } catch {
             failure = "brew command failed: \(error.localizedDescription)"
         }
         tapAction = failure.map { .failed(action: action, message: $0) } ?? .idle
         await performLoadTaps()
         await performRefresh(forceManifest: true, updateTaps: false)
+    }
+
+    /// The brew steps behind a version switch. Returns brew's failure wording (or the
+    /// cancel message), nil when every step succeeded. The chain stops at the first
+    /// failed or cancelled step — as documented on the public method, steps already
+    /// ran leave the tap clone / extracted file on disk, and the caller reloads anyway.
+    private func performSwitchSteps(plan: VersionSwitchPlan, destinationTap: String, item: BrewItem,
+                                    version: String, onLine: @escaping @Sendable (String) -> Void,
+                                    cancellation: BrewCancellationToken) async throws -> String? {
+        switch plan {
+        case .blocked(let reason):
+            return reason
+        case .relink(let rack, let unlinkRacks, let kegOnly):
+            for rackName in unlinkRacks {
+                let res = try await runner.runStreaming(["unlink", "--formula", rackName], onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                if res.exitCode != 0 { return failureMessage(for: res) }
+            }
+            var args = ["link", "--formula"]
+            if kegOnly { args.append("--force") }
+            args.append(rack)
+            let res = try await runner.runStreaming(args, onLine: onLine, cancellation: cancellation)
+            if cancellation.isCancelled { return Self.cancelledMessage }
+            return res.exitCode == 0 ? nil : failureMessage(for: res)
+        case .extractInstall(let sourceName, let ver, let sourceTap, _, let needsClone):
+            if needsClone {
+                let res = try await runner.runStreaming(["tap", sourceTap], onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                if res.exitCode != 0 { return failureMessage(for: res) }
+            }
+            let res = try await runner.runStreaming(["extract", "--force", "--version=\(ver)", sourceName, destinationTap],
+                                                    onLine: onLine, cancellation: cancellation)
+            if cancellation.isCancelled { return Self.cancelledMessage }
+            if res.exitCode != 0 { return failureMessage(for: res) }
+            let lastComponent = sourceName.split(separator: "/").last.map(String.init) ?? sourceName
+            let formulaName = extractedFormulaName(from: res.stdout,
+                                                   fallbackBase: baseFormulaName(lastComponent),
+                                                   fallbackVersion: ver)
+            // Unlink before installing so the new keg's symlinks don't
+            // collide with a currently linked keg of the same product.
+            for keg in versionFamily(of: item, in: items).filter({ $0.linkedVersion != nil }) {
+                let unlinkRes = try await runner.runStreaming(["unlink", "--formula", keg.fullName], onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                if unlinkRes.exitCode != 0 { return failureMessage(for: unlinkRes) }
+            }
+            let installRes = try await runner.runStreaming(["install", "-y", "\(destinationTap)/\(formulaName)"],
+                                                           onLine: onLine, cancellation: cancellation)
+            if cancellation.isCancelled { return Self.cancelledMessage }
+            return installRes.exitCode == 0 ? nil : failureMessage(for: installRes)
+        }
     }
 
     /// Brew's formula/cask disambiguation flag (trust, pin, unpin all take it).
@@ -587,10 +678,25 @@ public final class InventoryModel {
 
     private func performTapAction(_ action: TapAction, args: [String], reloadInventory: Bool) async {
         tapAction = .running(action)
+        let cancellation = BrewCancellationToken()
+        defer { actionCancellation = nil }
         do {
-            let result = try await runner.run(args)
-            guard result.exitCode == 0 else {
-                tapAction = .failed(action: action, message: failureMessage(for: result))
+            let failure: String? = try await withActionProgress(cancellation: cancellation) { onLine in
+                let result = try await runner.runStreaming(args, onLine: onLine, cancellation: cancellation)
+                if cancellation.isCancelled { return Self.cancelledMessage }
+                guard result.exitCode == 0 else { return failureMessage(for: result) }
+                return nil
+            }
+            if let failure {
+                tapAction = .failed(action: action, message: failure)
+                // A brew refusal changes nothing, so nothing is re-read (a failed
+                // untap keeps its tap list). A *cancel* can leave partial work —
+                // brew may already have installed or cloned something before the
+                // interrupt — so a cancelled action reloads anyway.
+                if failure == Self.cancelledMessage {
+                    await performLoadTaps()
+                    if reloadInventory { await performRefresh(forceManifest: true, updateTaps: false) }
+                }
                 return
             }
             tapAction = .idle

@@ -22,6 +22,11 @@ struct ContentView: View {
     @State private var selectedInstallID: String?
     @State private var history = NavigationHistory()
     @State private var showBrewSetup = false
+    // Progress sheet (design 2026-11-02 phase 2): presented only when a brew
+    // mutation/upgrade is still running after a beat — pin/trust finish in tens
+    // of ms and a sheet that blinks is worse than no sheet.
+    @State private var showActionProgress = false
+    @State private var actionProgressGeneration = 0
 
     var body: some View {
         // Chart is a two-column layout — sidebar + one full-width card grid,
@@ -160,6 +165,23 @@ struct ContentView: View {
             if phase == .active { Task { await app.model.refresh(reason: .focus) } }
         }
         .sheet(isPresented: $showBrewSetup) { BrewSetupSheet() }
+        .sheet(isPresented: $showActionProgress) { ActionProgressSheet(model: app.model) }
+        .onChange(of: app.model.progressActionLabel) { old, new in
+            if new != nil, old == nil {
+                actionProgressGeneration += 1
+                let generation = actionProgressGeneration
+                Task {
+                    try? await Task.sleep(for: .milliseconds(800))
+                    // A new action state or an end in the meantime invalidates this open.
+                    if generation == actionProgressGeneration, app.model.progressActionLabel != nil {
+                        showActionProgress = true
+                    }
+                }
+            } else if new == nil, old != nil {
+                actionProgressGeneration += 1 // also invalidates a pending debounce open
+                showActionProgress = false
+            }
+        }
         .onAppear { if !app.brewFound { showBrewSetup = true } }
     }
 
