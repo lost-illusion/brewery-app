@@ -102,6 +102,11 @@ public final class InventoryModel {
     public private(set) var tapsState: ViewState = .idle
     public private(set) var tapsUpdated: Date?
     public private(set) var tapAction: TapActionState = .idle
+    /// true only while a mutation is actually in flight. `.failed` is a message to
+    /// read, not a lock: gating buttons on `tapAction != .idle` disabled every
+    /// mutation after one brew refusal — and only a successful mutation clears
+    /// the state, so the error banner stuck for the rest of the session (fix 2026-11-10).
+    public var isMutating: Bool { if case .running = tapAction { true } else { false } }
     /// true when taps came from `brew tap` (names only) because jq is absent.
     public private(set) var tapsNamesOnly = false
     /// Item-level trust grants (`brew trust --json=v1`); nil = unknown (read failed).
@@ -320,6 +325,10 @@ public final class InventoryModel {
         await task.value
         tapsTask = nil
     }
+
+    /// Clears a tap-action failure message — the × on every failure banner.
+    /// Only `.failed` clears; `.running` is an action in flight, never dismissible.
+    public func dismissTapAction() { if case .failed = tapAction { tapAction = .idle } }
 
     /// `brew tap user/repo [URL]` (mutating). The GUI confirms first; the name
     /// is validated here too so a malformed target never reaches brew.

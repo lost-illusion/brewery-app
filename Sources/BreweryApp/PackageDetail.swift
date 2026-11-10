@@ -32,12 +32,15 @@ struct PackageDetail: View {
                             .textSelection(.enabled)
                     }
                     if case .failed(let action, let message) = model.tapAction {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
-                                .font(.callout).foregroundStyle(.red)
-                            Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
+                                    .font(.callout).foregroundStyle(.red)
+                                Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Dismiss") { model.dismissTapAction() }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(10)
                         .background(.red.opacity(0.12))
                     }
@@ -254,9 +257,9 @@ struct PackageDetail: View {
         if !item.installedVersions.isEmpty {
             Button { confirmUninstall = true } label: {
                 Label("Uninstall", systemImage: "trash")
-                    .opacity(model.tapAction == .idle ? 1 : 0)
+                    .opacity(model.isMutating ? 0 : 1)
                     .overlay {
-                        if model.tapAction != .idle {
+                        if model.isMutating {
                             ProgressView().controlSize(.small)
                         }
                     }
@@ -264,7 +267,7 @@ struct PackageDetail: View {
             .buttonStyle(.bordered)
             .tint(.red)
             .disabled(item.isPinned || model.state == .loading
-                      || model.upgrade != .idle || model.tapAction != .idle)
+                      || model.upgrade != .idle || model.isMutating)
             .help(item.isPinned
                   ? "pinned — brew refuses to uninstall pinned packages; Unpin first"
                   : "brew uninstall \(item.kind == .formula ? "--formula" : "--cask") \(item.fullName)")
@@ -384,15 +387,15 @@ struct PackageDetail: View {
                 }
             } label: {
                 Label(item.isPinned ? "Unpin" : "Pin", systemImage: item.isPinned ? "pin.slash" : "pin")
-                    .opacity(model.tapAction == .idle ? 1 : 0)
+                    .opacity(model.isMutating ? 0 : 1)
                     .overlay {
-                        if model.tapAction != .idle {
+                        if model.isMutating {
                             ProgressView().controlSize(.small)
                         }
                     }
             }
             .buttonStyle(.bordered)
-            .disabled(model.state == .loading || model.upgrade != .idle || model.tapAction != .idle)
+            .disabled(model.state == .loading || model.upgrade != .idle || model.isMutating)
             .help(item.isPinned
                   ? "brew unpin \(item.fullName) — brew upgrade will include it again"
                   : "brew pin \(item.fullName) — brew upgrade skips it; dependents may want newer")
@@ -654,7 +657,7 @@ struct PackageDetail: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tint)
-                .disabled(model.state == .loading || model.tapAction != .idle)
+                .disabled(model.state == .loading || model.isMutating)
                 .help("Switch \(item.fullName) to \(version)")
             }
             if let url = entry.webURL {

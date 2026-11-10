@@ -192,12 +192,15 @@ struct PackageList: View {
                 .padding(10)
                 .background(Color.accentColor.opacity(0.12))
         case .failed(_, let message):
-            Label(message, systemImage: "exclamationmark.octagon.fill")
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(.red.opacity(0.12))
-                .textSelection(.enabled)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(message, systemImage: "exclamationmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                Button("Dismiss") { model.dismissTapAction() }
+            }
+            .padding(10)
+            .background(.red.opacity(0.12))
         case .idle:
             EmptyView()
         }

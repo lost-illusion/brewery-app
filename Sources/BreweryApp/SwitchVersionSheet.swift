@@ -44,7 +44,7 @@ struct SwitchVersionSheet: View {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(candidates.isEmpty || model.tapAction != .idle)
+                .disabled(candidates.isEmpty || model.isMutating)
             }
         }
         .padding(16)

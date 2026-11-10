@@ -188,6 +188,23 @@ private func makeHarness(jqAvailable: Bool = true, probeRunning: Bool = false,
 }
 
 @MainActor
+@Test func tapActionFailure_isDismissableAndNeverAMutationLock() async {
+    // The 2026-11-10 deadlock: a brew refusal left .failed, every GUI button was
+    // gated on `!= .idle`, and only a *successful* mutation cleared the state —
+    // so the banner could never be hidden and no further action was possible.
+    let tap = TapInfo(name: "umputun/apps")
+    let (model, _) = makeHarness(tapResults: ["untap umputun/apps": fail("Error: Refusing to untap umputun/apps")])
+    await model.removeTap(tap, uninstallingItems: false)
+    #expect(model.tapAction != .idle)   // the refusal stays visible until dismissed…
+    #expect(!model.isMutating)          // …but it must not lock the next action…
+    model.dismissTapAction()            // …and the banner's × must clear it…
+    #expect(model.tapAction == .idle)   // …without touching anything else.
+    #expect(model.tapsState == .idle)   // a failed mutation never re-reads (or fails) the tap list
+    model.dismissTapAction()            // dismissing in .idle is a no-op
+    #expect(model.tapAction == .idle)
+}
+
+@MainActor
 @Test func tapTrust_usesTapFlagAndReloadsInventory() async {
     let tap = TapInfo(name: "umputun/apps")
     let (model, runner) = makeHarness(tapResults: ["trust --tap umputun/apps": ok("Trusted.\n")])

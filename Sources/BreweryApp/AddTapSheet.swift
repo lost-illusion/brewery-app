@@ -57,7 +57,9 @@ struct AddTapSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.tapAction != .idle || validationProblem != nil)
+                // .failed must NOT disable this: the whole point of leaving the sheet
+                // open on failure is to let the user fix the name and retry (2026-11-10).
+                .disabled(model.isMutating || validationProblem != nil)
             }
         }
         .padding(20)

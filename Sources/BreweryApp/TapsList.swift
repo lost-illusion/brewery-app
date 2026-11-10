@@ -31,7 +31,7 @@ struct TapsList: View {
                 Button { showAddTap = true } label: {
                     Label("Add Tap", systemImage: "plus")
                 }
-                .disabled(model.state == .loading || model.tapAction != .idle)
+                .disabled(model.state == .loading || model.isMutating)
                 .help("brew tap user/repo")
             }
             ToolbarItem(placement: .primaryAction) {
@@ -63,12 +63,15 @@ struct TapsList: View {
         case .failed(_, let message):
             // brew's own refusal (a tap with installed packages, an unknown
             // GitHub repo, …) is shown verbatim rather than paraphrased.
-            Label(message, systemImage: "exclamationmark.octagon.fill")
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(.red.opacity(0.12))
-                .textSelection(.enabled)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(message, systemImage: "exclamationmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                Button("Dismiss") { model.dismissTapAction() }
+            }
+            .padding(10)
+            .background(.red.opacity(0.12))
         case .idle:
             EmptyView()
         }

@@ -136,12 +136,15 @@ struct TapDetail: View {
                     .padding(10)
                     .background(Color.accentColor.opacity(0.12))
             case .failed(let action, let message):
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
-                        .font(.callout).foregroundStyle(.red)
-                    Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
+                            .font(.callout).foregroundStyle(.red)
+                        Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button("Dismiss") { model.dismissTapAction() }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(.red.opacity(0.12))
             case .idle:
@@ -250,7 +253,7 @@ struct TapDetail: View {
                     .help("brew install \(qualified) — a fully-qualified install also trusts this item")
             }
         }
-        .disabled(model.tapAction != .idle)
+        .disabled(model.isMutating)
     }
 
     /// Per-item trust toggle, shown only where it means something: an external tap
@@ -294,7 +297,7 @@ struct TapDetail: View {
                     .help("brew untap \(tap.name)")
             }
         }
-        .disabled(model.tapAction != .idle)
+        .disabled(model.isMutating)
     }
 
     // MARK: - Preview of a not-installed entry
@@ -341,7 +344,7 @@ struct TapDetail: View {
                         trustButton(tap, qualified: target.qualified, kind: target.kind)
                     }
                     Button("Retry") { previewFetch = UUID() }
-                        .disabled(model.tapAction != .idle)
+                        .disabled(model.isMutating)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -406,7 +409,7 @@ struct TapDetail: View {
                     Button("Open homepage") { NSWorkspace.shared.open(url) }
                 }
             }
-            .disabled(model.tapAction != .idle)
+            .disabled(model.isMutating)
         }
     }
 

@@ -119,7 +119,7 @@ struct InstallPreview: View {
                     trustButton(result)
                 }
                 Button("Retry") { previewFetch = UUID() }
-                    .disabled(model.tapAction != .idle)
+                    .disabled(model.isMutating)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
@@ -145,13 +145,16 @@ struct InstallPreview: View {
                 }
             }
             if case .failed(_, let message) = model.tapAction {
-                Label(message, systemImage: "exclamationmark.octagon.fill")
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                    .background(.red.opacity(0.12))
-                    .textSelection(.enabled)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(message, systemImage: "exclamationmark.octagon.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                    Button("Dismiss") { model.dismissTapAction() }
+                }
+                .padding(10)
+                .background(.red.opacity(0.12))
             }
             if let desc = item.desc, !desc.isEmpty {
                 Text(desc).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
@@ -166,7 +169,7 @@ struct InstallPreview: View {
             HStack(spacing: 10) {
                 Button("Install") { Task { await model.installItem(result.id) } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.tapAction != .idle)
+                    .disabled(model.isMutating)
                     .help("brew install -y \(result.id) — the app passes -y; brew's own ask-mode prompt would hang a GUI process (compat §77)\(result.isExternalTap ? " — a fully-qualified install also trusts this item" : "")")
                 if showTrustControls(result) {
                     trustButton(result)
@@ -178,7 +181,7 @@ struct InstallPreview: View {
                     Button("Open on formulae.brew.sh") { NSWorkspace.shared.open(page) }
                 }
             }
-            .disabled(model.tapAction != .idle)
+            .disabled(model.isMutating)
         }
     }
 

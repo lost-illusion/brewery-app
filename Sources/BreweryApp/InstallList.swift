@@ -45,12 +45,15 @@ struct InstallList: View {
                 .padding(10)
                 .background(Color.accentColor.opacity(0.12))
         case .failed(let action, let message):
-            VStack(alignment: .leading, spacing: 4) {
-                Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
-                    .font(.callout).foregroundStyle(.red)
-                Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("\(action.label.dropLast()) failed", systemImage: "exclamationmark.octagon.fill")
+                        .font(.callout).foregroundStyle(.red)
+                    Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button("Dismiss") { model.dismissTapAction() }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
             .background(.red.opacity(0.12))
         case .idle:
